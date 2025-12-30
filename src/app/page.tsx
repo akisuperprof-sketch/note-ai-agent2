@@ -557,23 +557,38 @@ export default function Home() {
 
       {status === "idle" && (
         <div className="animate-in fade-in zoom-in duration-500">
-          {/* ... existing Home UI code ... */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold mb-2">サンプル記事</h2>
-            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-              {[1, 2].map(i => (
-                <div key={i} className="glass-card w-64 h-32 rounded-xl shrink-0 flex items-center justify-center text-white/20">
-                  Sample {i}
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              あなたのノウハウを、<br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">プロ級のnote記事</span>に。
+            </h2>
+            <p className="text-gray-400 max-w-md mx-auto">
+              テーマを入力するだけで、構成・執筆・画像生成・品質スコア評価までAIがワンストップで実行します。
+            </p>
+          </div>
+
+          <h2 className="text-xl font-bold mb-4 text-white/70">記事作成の 3 Step</h2>
+          <StepCards onStart={() => setStatus("outline")} />
+
+          <div className="mt-12 p-6 glass-card rounded-[24px] border border-white/5 bg-white/5">
+            <h3 className="font-bold mb-4 text-sm text-gray-500">最近のアップデート</h3>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 text-sm">
+                <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles size={12} className="text-purple-400" />
                 </div>
-              ))}
+                <p className="text-gray-300">参考画像（キャラクター等）の取り込みに対応しました。</p>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Check size={12} className="text-blue-400" />
+                </div>
+                <p className="text-gray-300">「3秒で伝わる」サムネイル最適化プロンプトを導入しました。</p>
+              </div>
             </div>
           </div>
-          <h2 className="text-2xl font-bold mb-4">3 Step Generation</h2>
-          <StepCards onStart={() => setStatus("outline")} />
         </div>
       )}
-
-      {/* ... (rest of render logic) ... */}
 
       {status === "outline" && (
         <InputForm onSubmit={handleGenerate} isGenerating={false} />
@@ -583,7 +598,6 @@ export default function Home() {
         <div className="space-y-6">
           <ProgressLog logs={logs} />
 
-          {/* Real-time Preview Window */}
           <div className="glass-card p-4 rounded-[20px] bg-black/40 border border-white/10 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
               <div className="flex items-center gap-2">
@@ -594,7 +608,6 @@ export default function Home() {
                 </div>
                 <span className="text-xs font-mono text-white/30 ml-2">GENERATING_PREVIEW.md</span>
               </div>
-              {/* Character Count Progress */}
               <div className="flex items-center gap-3">
                 <div className="text-xs font-mono text-white/50">
                   {articleText.length.toLocaleString()} / {(inputs?.targetLength || 5000).toLocaleString()} chars
@@ -618,7 +631,6 @@ export default function Home() {
       )}
 
       {status === "done" && (
-        // ... (rest of the code)
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
           <div className="flex gap-4 mb-6">
             <button
@@ -640,10 +652,7 @@ export default function Home() {
               {generatedImage && (
                 <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group">
                   <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-
-                    {/* Title Overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end items-center pb-8 px-6 text-center">
                       <h1 className="text-xl md:text-2xl font-bold text-white drop-shadow-md leading-relaxed tracking-wide" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.9)" }}>
                         {displayTitle}
@@ -671,7 +680,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* --- New Feature: Next Actions --- */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button className="glass-card p-4 rounded-xl flex items-center gap-3 hover:bg-white/10 transition-colors text-left group">
                   <div className="w-10 h-10 rounded-full bg-blue-400/20 flex items-center justify-center group-hover:bg-blue-400/30 transition-colors">
