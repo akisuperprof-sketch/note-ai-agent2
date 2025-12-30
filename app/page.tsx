@@ -404,7 +404,10 @@ export default function Home() {
               const imgRes = await fetch("/api/generate-image", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ articleText: fullText }), // API will re-extract or generate theme
+                body: JSON.stringify({
+                  articleText: fullText,
+                  promptOverride: realPromptMatch[1].trim()
+                }),
               });
               const imgData = await imgRes.json();
               if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);

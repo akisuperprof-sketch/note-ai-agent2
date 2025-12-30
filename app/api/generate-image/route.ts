@@ -13,29 +13,34 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { articleText } = await req.json();
+        const { articleText, promptOverride } = await req.json();
 
-        // 1. Generate Image Prompt
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        let imagePrompt = promptOverride;
 
-        const promptEngineering = `
-    以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
-    
-    【要件】
-    - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
-    - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
-    - "No text" (文字を含まない) という指示を必ず含めてください。
-    - 具体的すぎる描写よりも、記事のテーマや感情を表現する抽象的な概念ビジュアルが良いです。
+        if (!imagePrompt) {
+            // 1. Generate Image Prompt (Fallback)
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    【記事の抜粋】
-    ${articleText.substring(0, 1000)}...
-  `;
+            const promptEngineering = `
+        以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
+        
+        【要件】
+        - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
+        - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
+        - "No text" (文字を含まない) という指示を必ず含めてください。
+        - 具体的すぎる描写よりも、記事のテーマや感情を表現する抽象的な概念ビジュアルが良いです。
 
-        const promptResult = await model.generateContent(promptEngineering);
-        const imagePrompt = promptResult.response.text();
+        【記事の抜粋】
+        ${articleText.substring(0, 1000)}...
+      `;
 
-        console.log("Generated Image Prompt:", imagePrompt);
+            const promptResult = await model.generateContent(promptEngineering);
+            imagePrompt = promptResult.response.text();
+            console.log("Generated Image Prompt (Fallback):", imagePrompt);
+        } else {
+            console.log("Using Provided Image Prompt:", imagePrompt);
+        }
 
         // 2. Call Image Generation Model (Gemini-3-Pro-Image-Preview via REST)
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
