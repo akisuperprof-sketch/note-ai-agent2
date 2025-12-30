@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Play, Check, Copy, AlertCircle, X, ChevronRight, HelpCircle,
-  RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus
+  RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus,
+  Eye, BarChart3, Download
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
@@ -436,10 +437,12 @@ export default function Home() {
   const [score, setScore] = useState<ArticleScore | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [imagePrompt, setImagePrompt] = useState("");
-  const [activeTab, setActiveTab] = useState<"result" | "score">("result");
   const [displayTitle, setDisplayTitle] = useState(""); // State for title overlay
   const [textModel, setTextModel] = useState("");
   const [imageModel, setImageModel] = useState("");
+  const [inlineImage, setInlineImage] = useState<string | null>(null);
+  const [metaDescription, setMetaDescription] = useState("");
+  const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -495,47 +498,61 @@ export default function Home() {
           }
         }
 
-        // Extract title for display: Search for first H1 (# ) or use topic
+        // Extract title and Meta Description
         const titleMatch = fullText.match(/^#\s+(.+)$/m);
         const extractedTitle = titleMatch ? titleMatch[1].trim() : data.topic;
         setDisplayTitle(extractedTitle);
 
-        // --- Added Phase: Refinement ---
-        await addLog("文章を整えています（推敲中）...", 1500);
-        // (Internal refinement logic would go here if API supported it, simplified as log for now to match UX request)
+        // Simple extraction for meta description (first long paragraph or first 120 chars)
+        const paragraphs = fullText.split("\n\n").filter(p => !p.startsWith("#"));
+        const firstMeaningfulParam = paragraphs.find(p => p.length > 50) || "";
+        setMetaDescription(firstMeaningfulParam.substring(0, 120) + "...");
 
         const finalScore = calculateArticleScore(fullText, data.targetLength || 5000);
         setScore(finalScore);
 
         setStatus("image_prompt");
-        // --- Added Phase: Topic Summary for Image ---
-        await addLog("アイキャッチ画像を作成しています...", 1000);
-
-        // Try to generate image with intermediate summarization if possible
-        // We pass fullText, but server now extracts better summary based on our new instruction
+        // --- 1. Header Image ---
+        await addLog("アイキャッチ画像を生成中...", 1000);
         try {
           const imgRes = await fetch("/api/generate-image", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: extractedTitle, // Pass the extracted title
-              articleText: fullText,
-              visualStyle: data.visualStyle, // Pass visual style
-              character: data.character      // Pass character setting
+              title: extractedTitle,
+              articleText: fullText.substring(0, 1000), // Focus on intro
+              visualStyle: data.visualStyle,
+              character: data.character,
+              referenceImage: data.referenceImage
             }),
           });
+          const imgData = await imgRes.json();
+          if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
+          if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
+          if (imgData.model) setImageModel(imgData.model);
+        } catch (e) { console.error("Header image failed", e); }
 
-          if (!imgRes.ok) {
-            const errData = await imgRes.json().catch(() => ({ error: "Unknown Image Error" }));
-            await addLog(`画像生成エラー: ${errData.error}`, 3000);
-            if (errData.generatedPrompt) setImagePrompt(errData.generatedPrompt);
-          } else {
-            const imgData = await imgRes.json();
-            if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
-            if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
-            if (imgData.model) setImageModel(imgData.model);
-          }
-        } catch (e) { console.error(e); }
+        // --- 2. Inline Image ---
+        await addLog("記事内画像を生成中...", 1000);
+        try {
+          const firstHeadingMatch = fullText.match(/##\s+(.+)/);
+          const headingText = firstHeadingMatch ? firstHeadingMatch[1] : "この記事のポイント";
+
+          const imgRes = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: headingText,
+              articleText: "Demonstration of: " + headingText,
+              visualStyle: "Simple Flat Illustration",
+              character: data.character,
+              referenceImage: data.referenceImage,
+              promptOverride: `Simple clean flat anime illustration of ${data.character || 'a character'} showing "${headingText}", educational context, textless background, bright colors.`
+            }),
+          });
+          const imgData = await imgRes.json();
+          if (imgData.imageUrl) setInlineImage(imgData.imageUrl);
+        } catch (e) { console.error("Inline image failed", e); }
 
         setStatus("done");
         await addLog("カンペキです！", 500);
@@ -638,140 +655,144 @@ export default function Home() {
       )}
 
       {status === "done" && (
-        <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
-          <div className="flex gap-4 mb-6">
+        <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-8">
+          {/* Top Fixed Copy Button */}
+          <button
+            onClick={copyToClipboard}
+            className="w-full py-4 rounded-2xl bg-white text-blue-600 font-extrabold flex items-center justify-center gap-3 shadow-xl hover:scale-[1.02] transition-all border-2 border-blue-100"
+          >
+            <Copy size={20} /> 記事本文をコピー（noteに貼り付け）
+          </button>
+
+          {/* Tab Navigation */}
+          <div className="flex bg-white/5 p-1 rounded-2xl backdrop-blur-xl border border-white/10">
             <button
               onClick={() => setActiveTab("result")}
-              className={cn("flex-1 py-3 rounded-xl font-bold transition-all", activeTab === "result" ? "bg-white/10 text-white" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "result" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
             >
-              記事出力
+              <Sparkles size={16} /> 生成結果
+            </button>
+            <button
+              onClick={() => setActiveTab("preview")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "preview" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
+            >
+              <Eye size={16} /> noteプレビュー
             </button>
             <button
               onClick={() => setActiveTab("score")}
-              className={cn("flex-1 py-3 rounded-xl font-bold transition-all", activeTab === "score" ? "bg-white/10 text-white" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "score" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
             >
-              品質スコア
+              <BarChart3 size={16} /> 品質スコア
             </button>
           </div>
 
           {activeTab === "result" && (
-            <div className="space-y-6">
-              {generatedImage && (
-                <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group">
-                  <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
-                    <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                    {/* Note-style Premium Title Overlay */}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-24 pb-6 px-6 text-center">
-                      <div className="inline-block px-3 py-1 bg-white/10 border border-white/20 rounded-full text-[10px] text-white/50 font-bold mb-3 tracking-widest backdrop-blur-md">
-                        FEATURED ARTICLE
-                      </div>
-                      <h1 className="text-xl md:text-2xl font-bold text-white leading-relaxed tracking-tight" style={{
-                        textShadow: "0 2px 10px rgba(0,0,0,1)",
-                        letterSpacing: "-0.01em"
-                      }}>
-                        {displayTitle}
-                      </h1>
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex justify-between items-center bg-black/20">
-                    <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline flex items-center gap-2">
-                      画像を保存
-                    </a>
-                    <div className="flex gap-2">
-                      <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-white/30 uppercase tracking-tighter">AI Model</span>
-                        <span className="text-[10px] text-white/50 font-mono">{imageModel || "Gemini 3 Pro"}</span>
+            <div className="space-y-8 pb-10">
+              {/* Header Image Section */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-end">
+                  <h3 className="text-xl font-bold text-white/80">アイキャッチ画像</h3>
+                  <a href={generatedImage || "#"} download="eyecatch.png" className="flex items-center gap-2 px-4 py-2 bg-emerald-500 rounded-xl text-xs font-bold text-white hover:bg-emerald-600 transition-all">
+                    <Download size={14} /> ダウンロード
+                  </a>
+                </div>
+                {generatedImage && (
+                  <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group border-white/5">
+                    <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
+                      <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-24 pb-6 px-6 text-center">
+                        <h1 className="text-lg md:text-xl font-bold text-white leading-relaxed" style={{ textShadow: "0 2px 10px rgba(0,0,0,1)" }}>
+                          {displayTitle}
+                        </h1>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              <div className="glass-card p-6 rounded-[24px]">
-                <div className="flex justify-between items-center mb-4">
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-bold text-white/70">記事本文</h3>
-                    <div className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400 font-mono tracking-tighter">
-                      {textModel}
+              {/* Inline Image Section */}
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold text-white/80">記事内画像（1枚）</h3>
+                {inlineImage ? (
+                  <div className="glass-card p-2 rounded-[24px] overflow-hidden border-white/5">
+                    <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
+                      <img src={inlineImage} alt="Inline" className="w-full h-full object-contain" />
+                      {/* Simple Heading Overlay for Inline */}
+                      <div className="absolute bottom-0 inset-x-0 bg-black/60 py-3 px-4 backdrop-blur-sm">
+                        <p className="text-center text-white text-sm font-bold truncate">1. {displayTitle.split("：")[1] || "プロの味は下準備から！"}</p>
+                      </div>
                     </div>
                   </div>
-                  <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm font-bold hover:bg-purple-500 transition-colors">
-                    <Copy size={16} /> コピー
-                  </button>
+                ) : (
+                  <div className="h-40 glass-card rounded-[24px] flex items-center justify-center text-white/20 text-sm italic">
+                    生成中または生成されませんでした
+                  </div>
+                )}
+              </div>
+
+              {/* Meta Description Section */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-end">
+                  <h3 className="text-xl font-bold text-white/80">メタディスクリプション</h3>
+                  <button onClick={() => { navigator.clipboard.writeText(metaDescription); alert("コピーしました"); }} className="px-4 py-2 bg-white/10 rounded-xl text-xs font-bold text-white/60 hover:bg-white/20 transition-all">コピー</button>
                 </div>
-                <div className="prose prose-invert prose-p:text-gray-300 prose-headings:text-white max-w-none bg-black/20 rounded-xl p-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{articleText}</pre>
+                <div className="glass-card p-6 rounded-[24px] bg-black/40 text-sm leading-relaxed text-gray-400 border-white/5">
+                  {metaDescription}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button className="glass-card p-4 rounded-xl flex items-center gap-3 hover:bg-white/10 transition-colors text-left group">
-                  <div className="w-10 h-10 rounded-full bg-blue-400/20 flex items-center justify-center group-hover:bg-blue-400/30 transition-colors">
-                    <Share size={20} className="text-blue-400" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm">Xで告知する</div>
-                    <div className="text-xs text-white/50">投稿文を自動作成</div>
-                  </div>
-                </button>
-                <button className="glass-card p-4 rounded-xl flex items-center gap-3 hover:bg-white/10 transition-colors text-left group">
-                  <div className="w-10 h-10 rounded-full bg-yellow-400/20 flex items-center justify-center group-hover:bg-yellow-400/30 transition-colors">
-                    <DollarSign size={20} className="text-yellow-400" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm">有料noteにする</div>
-                    <div className="text-xs text-white/50">有料化のアイデア</div>
-                  </div>
-                </button>
-              </div>
-
-              <div className="glass-card p-6 rounded-[24px] border-l-4 border-l-purple-500">
+              {/* Prompt Backup */}
+              <div className="glass-card p-6 rounded-[24px] border-l-4 border-l-purple-500 bg-white/5">
                 <h3 className="font-bold mb-2">画像生成プロンプト</h3>
-                <p className="text-xs text-white/50 mb-4">他の画像生成ツールを使う場合はこちらをコピーしてください</p>
-                <div className="bg-black/30 p-4 rounded-xl text-xs font-mono text-gray-400 overflow-x-auto">
+                <div className="bg-black/30 p-4 rounded-xl text-[10px] font-mono text-gray-500 overflow-x-auto">
                   {imagePrompt || "プロンプト生成中..."}
                 </div>
               </div>
             </div>
           )}
 
-          {activeTab === "score" && score && (
-            <div className="glass-card p-8 rounded-[24px]">
-              <ScoreMeter score={score.total} summary={score.summary} />
-              <div className="px-4">
-                <ScoreBars details={score.details} metrics={score.metrics} />
-              </div>
-              <div className="mt-8 pt-8 border-t border-white/10 text-center">
-                <p className="text-sm text-gray-400">
-                  「{score.summary}」な記事です。<br />
-                  {score.total < 80 ? "見出しや具体例を足して、充実度を上げるとさらに良くなります。" : "このまま自信を持って投稿しましょう！"}
-                </p>
+          {activeTab === "preview" && (
+            <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500 pb-20">
+              {generatedImage && <img src={generatedImage} className="w-full aspect-video object-cover rounded-3xl shadow-2xl" />}
+              <div className="space-y-6">
+                <h1 className="text-4xl font-bold text-white leading-tight">{displayTitle}</h1>
+                <div className="flex gap-4 items-center border-b border-white/10 pb-6">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500"></div>
+                  <div className="text-sm">
+                    <div className="font-bold">AI Agent</div>
+                    <div className="text-white/40">2025.12.31 · 10 min read</div>
+                  </div>
+                </div>
+                <div className="prose prose-invert max-w-none text-lg leading-relaxed text-gray-300">
+                  <pre className="whitespace-pre-wrap font-sans leading-relaxed">{articleText}</pre>
+                </div>
               </div>
             </div>
           )}
 
-          <div className="mt-8 flex flex-col items-center gap-4">
-            {articleText.length < (inputs?.targetLength || 5000) * 0.9 && (
-              <div className="flex items-center gap-2 text-yellow-500 bg-yellow-500/10 px-4 py-2 rounded-xl text-sm font-bold border border-yellow-500/20">
-                <AlertCircle size={16} />
-                文字数が目標に届いていません（現在 {articleText.length.toLocaleString()} / {inputs?.targetLength?.toLocaleString()} 字）
+          {activeTab === "score" && score && (
+            <div className="glass-card p-8 rounded-[24px] animate-in fade-in slide-in-from-left-4 duration-500">
+              <ScoreMeter score={score.total} summary={score.summary} />
+              <div className="px-4">
+                <ScoreBars details={score.details} metrics={score.metrics} />
               </div>
-            )}
+            </div>
+          )}
 
+          {/* Bottom Navigation */}
+          <div className="pt-10 flex flex-col items-center gap-6">
             <div className="flex gap-4">
               <button
                 onClick={() => handleGenerate(inputs)}
-                className="px-8 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold transition-all flex items-center gap-2"
+                className="px-10 py-4 rounded-full bg-white/5 hover:bg-white/10 text-white font-bold transition-all flex items-center gap-3 border border-white/10"
               >
-                <RotateCcw size={16} />
-                再試行して書き直す
+                <RotateCcw size={18} /> 再試行
               </button>
               <button
                 onClick={() => setStatus("outline")}
-                className="px-8 py-3 rounded-full bg-gradient-primary text-white text-sm font-bold transition-all flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                className="px-10 py-4 rounded-full bg-gradient-primary text-white font-extrabold transition-all flex items-center gap-3 shadow-2xl shadow-purple-500/20"
               >
-                はじめから作成
+                <Sparkles size={18} /> 最初から作る
               </button>
             </div>
           </div>
