@@ -441,6 +441,7 @@ export default function Home() {
   const [textModel, setTextModel] = useState("");
   const [imageModel, setImageModel] = useState("");
   const [inlineImage, setInlineImage] = useState<string | null>(null);
+  const [inlineHeading, setInlineHeading] = useState("");
   const [metaDescription, setMetaDescription] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
 
@@ -537,6 +538,7 @@ export default function Home() {
         try {
           const firstHeadingMatch = fullText.match(/##\s+(.+)/);
           const headingText = firstHeadingMatch ? firstHeadingMatch[1] : "この記事のポイント";
+          setInlineHeading(headingText);
 
           const imgRes = await fetch("/api/generate-image", {
             method: "POST",
@@ -717,9 +719,9 @@ export default function Home() {
                   <div className="glass-card p-2 rounded-[24px] overflow-hidden border-white/5">
                     <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
                       <img src={inlineImage} alt="Inline" className="w-full h-full object-contain" />
-                      {/* Simple Heading Overlay for Inline */}
+                      {/* Dynamic Heading Overlay for Inline */}
                       <div className="absolute bottom-0 inset-x-0 bg-black/60 py-3 px-4 backdrop-blur-sm">
-                        <p className="text-center text-white text-sm font-bold truncate">1. {displayTitle.split("：")[1] || "プロの味は下準備から！"}</p>
+                        <p className="text-center text-white text-sm font-bold truncate">1. {inlineHeading}</p>
                       </div>
                     </div>
                   </div>
