@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Play, Check, Copy, AlertCircle, X, ChevronRight, HelpCircle,
-  RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb
+  RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
@@ -132,6 +132,19 @@ function InputForm({
   const [differentiation, setDifferentiation] = useState("");
   const [visualStyle, setVisualStyle] = useState("写真リアル");
   const [character, setCharacter] = useState("指定なし");
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReferenceImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleAutoRecommend = () => {
     setTargetAudience("20代の若手社員");
@@ -143,29 +156,78 @@ function InputForm({
 
   const handleSubmit = () => {
     if (!topic) return;
-    onSubmit({ topic, targetAudience, goal, targetLength, tone, differentiation, visualStyle, character });
+    onSubmit({
+      topic, targetAudience, goal, targetLength, tone,
+      differentiation, visualStyle, character, referenceImage
+    });
   };
 
   if (isGenerating) return null;
 
   return (
     <div className="glass-card p-6 md:p-8 rounded-[24px] space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-sm font-bold text-gray-400">記事テーマ・ノウハウメモ <span className="text-purple-400">*</span></label>
-          <button
-            onClick={handleAutoRecommend}
-            className="text-xs bg-gradient-to-r from-pink-500 to-purple-500 text-white px-3 py-1 rounded-full flex items-center gap-1 font-bold hover:opacity-90 transition-opacity"
-          >
-            <Wand2 size={12} /> AIにおまかせ設定
-          </button>
+      <div className="space-y-4">
+        {/* Topic Input */}
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <label className="text-sm font-bold text-gray-400">記事テーマ・ノウハウメモ <span className="text-purple-400">*</span></label>
+            <button
+              onClick={handleAutoRecommend}
+              className="text-xs bg-gradient-to-r from-pink-500 to-purple-500 text-white px-3 py-1 rounded-full flex items-center gap-1 font-bold hover:opacity-90 transition-opacity"
+            >
+              <Wand2 size={12} /> AIにおまかせ設定
+            </button>
+          </div>
+          <textarea
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="（例）初心者向けのNotion使い方。データベース機能を中心に、タスク管理のテンプレートの作り方を解説したい。"
+            className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-4 text-white placeholder-white/20 focus:outline-none focus:border-purple-500/50 transition-colors resize-none"
+          />
         </div>
-        <textarea
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder="（例）初心者向けのNotion使い方。データベース機能を中心に、タスク管理のテンプレートの作り方を解説したい。"
-          className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-4 text-white placeholder-white/20 focus:outline-none focus:border-purple-500/50 transition-colors resize-none"
-        />
+
+        {/* Reference Image Upload */}
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">参考画像（任意）</label>
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "relative group cursor-pointer border-2 border-dashed rounded-xl transition-all flex flex-col items-center justify-center overflow-hidden",
+              referenceImage ? "border-purple-500 h-48" : "border-white/10 h-32 hover:border-white/20 bg-white/5"
+            )}
+          >
+            {referenceImage ? (
+              <>
+                <img src={referenceImage} alt="Reference" className="w-full h-full object-contain" />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <ImagePlus size={16} /> 別の画像に変更
+                  </span>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setReferenceImage(null); }}
+                  className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full text-white/70 hover:text-white transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </>
+            ) : (
+              <div className="text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mx-auto group-hover:bg-white/10 transition-colors">
+                  <ImagePlus size={20} className="text-white/40 group-hover:text-white/60" />
+                </div>
+                <p className="text-xs text-white/40 font-medium">クリックして画像をアップロード<br />(雰囲気の参考にします)</p>
+              </div>
+            )}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImageChange}
+              accept="image/*"
+              className="hidden"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -517,8 +579,6 @@ export default function Home() {
         <InputForm onSubmit={handleGenerate} isGenerating={false} />
       )}
 
-// ... (previous code)
-
       {(status === "writing" || status === "polish" || status === "scoring" || status === "image_prompt") && (
         <div className="space-y-6">
           <ProgressLog logs={logs} />
@@ -557,8 +617,6 @@ export default function Home() {
         </div>
       )}
 
-// ... (rest of the code)
-
       {status === "done" && (
         // ... (rest of the code)
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
@@ -594,7 +652,6 @@ export default function Home() {
                   </div>
 
                   <div className="p-4">
-                    <p className="text-xs text-white/50 font-mono mb-2">IMAGE MODEL: {generatedImage.includes("pollinations") ? "FLUX (POLLINATIONS)" : "GEMINI-3-PRO-IMAGE-PREVIEW"}</p>
                     <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline">画像をダウンロード（※タイトル合成未対応）</a>
                   </div>
                 </div>
@@ -604,7 +661,6 @@ export default function Home() {
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="font-bold text-white/70">記事本文</h3>
-                    <p className="text-xs text-white/30 font-mono mt-1">TEXT MODEL: GEMINI-3-FLASH-PREVIEW</p>
                   </div>
                   <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm font-bold hover:bg-purple-500 transition-colors">
                     <Copy size={16} /> コピー
