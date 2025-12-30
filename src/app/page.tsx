@@ -389,50 +389,29 @@ export default function Home() {
         }
 
         // Parsing Image Prompt from text
-        const promptMatch = fullText.match(/【image_model】[\s\S]*$/);
-        let finalImagePrompt = "";
-        if (promptMatch) {
-          finalImagePrompt = promptMatch[0];
-          // We intentionally DON'T remove it from article text in UI to verify it's there? 
-          // Or we can remove it. Let's keep it in "Image Prompt" block only.
-          // Actually the user wants "Image Generation Prompt Block" separated.
-          setImagePrompt(finalImagePrompt);
-        }
-
-        setStatus("polish");
-        await addLog("本文を生成しています...", 1000); // Already mostly done streaming
-        await addLog("文章を整えています...", 1000);
-
-        setStatus("scoring");
-        await addLog("品質スコアを算出しています...", 1000);
-        const calculatedScore = calculateArticleScore(fullText, data.targetLength);
-        setScore(calculatedScore);
-
         setStatus("image_prompt");
-        await addLog("アイキャッチ用の画像プロンプトを作成しています...", 1000);
+        // No longer extracting from text. Generating new image prompt based on the article result.
+        await addLog("アイキャッチ画像を作成しています...", 1000);
 
-        if (finalImagePrompt) {
-          // Extract real prompt part for API
-          const realPromptMatch = finalImagePrompt.match(/【prompt】\n([\s\S]*?)\n【/);
-          if (realPromptMatch && realPromptMatch[1]) {
-            // Generate Image (Simulate phase 5)
-            try {
-              const imgRes = await fetch("/api/generate-image", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  articleText: fullText,
-                  promptOverride: realPromptMatch[1].trim()
-                }),
-              });
-              const imgData = await imgRes.json();
-              if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
-            } catch (e) {
-              console.error(e);
-            }
+        try {
+          const imgRes = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              articleText: fullText, // Send full text, API will generate English prompt + Image
+            }),
+          });
+
+          if (!imgRes.ok) {
+            console.error("Image generation failed");
+          } else {
+            const imgData = await imgRes.json();
+            if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
           }
-        }
 
+        } catch (e) {
+          console.error(e);
+        }
         setStatus("done");
         await addLog("カンペキです！", 500);
 
