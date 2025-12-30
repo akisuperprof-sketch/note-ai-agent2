@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         } = body;
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
 
         const prompt = `
 あなたは「note記事自動生成AIエージェント」です。出力は日本語。冗長な前置き不要。ユーザーがそのままnoteに貼れる完成原稿を作る。記事品質は読みやすさ最優先。見出し階層はH2中心、必要ならH3を1〜2個だけ。箇条書きは多用しすぎず、要点は短く。結論→理由→手順→注意点→まとめの順に整える。本文の途中に画像は挿入しない。
@@ -67,21 +67,48 @@ STEP3 本文を書く（目標文字数±15 %）
 ・今日からできる最初の一歩（1行）
         `;
 
-        const result = await model.generateContentStream(prompt);
+        try {
+            const result = await model.generateContentStream(prompt);
 
-        const stream = new ReadableStream({
-            async start(controller) {
-                for await (const chunk of result.stream) {
-                    const chunkText = chunk.text();
-                    controller.enqueue(new TextEncoder().encode(chunkText));
-                }
-                controller.close();
-            },
-        });
+            const stream = new ReadableStream({
+                async start(controller) {
+                    for await (const chunk of result.stream) {
+                        const chunkText = chunk.text();
+                        controller.enqueue(new TextEncoder().encode(chunkText));
+                    }
+                    controller.close();
+                },
+            });
 
-        return new NextResponse(stream, {
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-        });
+            return new NextResponse(stream, {
+                headers: { "Content-Type": "text/plain; charset=utf-8" },
+            });
+        } catch (streamingError) {
+            // Debug: List available models if generation fails
+            console.error("Streaming failed:", streamingError);
+            try {
+                const listModelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                const listModelsData = await listModelsRes.json();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const availableModels = listModelsData.models?.map((m: any) => m.name) || ["No models found"];
+                console.error("Available Models:", availableModels);
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const err = streamingError as any;
+                return NextResponse.json(
+                    { error: `Model Error: ${err.message}. Available: ${availableModels.join(", ")}` },
+                    { status: 500 }
+                );
+            } catch (listError) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const err = streamingError as any;
+                return NextResponse.json(
+                    { error: `Generation failed and could not list models: ${err.message}` },
+                    { status: 500 }
+                );
+            }
+        }
+
     } catch (error) {
         console.error("Generate API Error:", error);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
