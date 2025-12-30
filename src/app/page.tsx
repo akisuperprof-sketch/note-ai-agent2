@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   Copy, RefreshCw, Sparkles, Settings2, FileText,
-  ArrowRight, Check, KeyRound, AlertCircle, X
+  ArrowRight, Check, KeyRound, AlertCircle, X, Image as ImageIcon,
+  Download
 } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -28,48 +29,66 @@ interface GenerateParams {
 }
 
 // --- Gemini Logic ---
+
+// Note-specific prompt engineering
+const SYSTEM_INSTRUCTION = `
+あなたは日本で最も支持されている「note」の人気クリエイターであり、優秀な編集者です。
+読了率が高く、スキ（いいね）が集まる、共感性の高い記事を執筆することが得意です。
+
+【執筆のルール】
+1. **タイトル**: 32文字以内で、クリックしたくなる魅力的で具体的なタイトルを考えてください（出力の先頭に # タイトル として記載）。
+2. **構成**:
+   - **導入**: 読者の課題に寄り添い、この記事を読むメリットを提示する。
+   - **本文**: 具体的で分かりやすいエピソードや事例を交える。見出し（##, ###）を活用してリズムを作る。
+   - **まとめ**: 行動を促すようなポジティブな締めくくり。
+3. **表現**:
+   - 漢字・ひらがな・カタカナのバランスを意識（ひらがな多めがnoteらしい）。
+   - 難しい専門用語は噛み砕く。
+   - 適度に絵文字😊や感嘆符！を使って感情を表現する（トーンによる）。
+   - 重要箇所は **太字** で強調する。
+4. **CTA**: 最後には必ず「この記事が良かったら『スキ』やフォローをお願いします！」という呼びかけを入れる。
+`;
+
 async function streamGeminiContent({
   apiKey, sourceText, tone, length, customInstructions, onStream
 }: GenerateParams) {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    systemInstruction: SYSTEM_INSTRUCTION
+  });
 
   let lengthPrompt = "";
   switch (length) {
-    case "short": lengthPrompt = "800〜1200文字程度"; break;
-    case "medium": lengthPrompt = "1500〜2500文字程度"; break;
-    case "long": lengthPrompt = "3000文字以上"; break;
+    case "short": lengthPrompt = "800〜1200文字程度（サクッと読める分量）"; break;
+    case "medium": lengthPrompt = "1500〜2500文字程度（充実した内容）"; break;
+    case "long": lengthPrompt = "3000文字以上（網羅的な長編）"; break;
     case "auto": default: lengthPrompt = "内容に合わせて最適な長さ"; break;
   }
 
   let tonePrompt = "";
   switch (tone) {
-    case "business": tonePrompt = "プロフェッショナルで信頼感のあるビジネスライクな文体。論理的で明確な表現を心がけてください。"; break;
-    case "emotional": tonePrompt = "読者の感情に訴えかける、エモーショナルで共感性の高い文体。個人の体験や想いを重視してください。"; break;
-    case "casual": tonePrompt = "親しみやすく、語りかけるようなカジュアルな文体。絵文字を適度に使用し、堅苦しさを排除してください。"; break;
-    case "standard": default: tonePrompt = "読みやすく丁寧な標準的な文体（です・ます調）。親しみやすさと信頼感のバランスをとってください。"; break;
+    case "business": tonePrompt = "文体: プロフェッショナルで信頼感のある『です・ます』調。論理的で明確な表現。ビジネスパーソン向け。"; break;
+    case "emotional": tonePrompt = "文体: エッセイのような、筆者の体温が伝わるエモーショナルな文体。独り言や問いかけを交える。"; break;
+    case "casual": tonePrompt = "文体: 友人に話しかけるようなフランクな口調。絵文字多めで、改行も多めに。"; break;
+    case "standard": default: tonePrompt = "文体: 読みやすく丁寧な標準的な『です・ます』調。noteの標準的なスタイル。"; break;
   }
 
   const prompt = `
-    あなたはプロのnoteクリエイターであり、優秀な編集者です。
-    以下の「元のテキスト/メモ」をもとに、多くの人に読まれる魅力的なnote記事を作成してください。
+    以下の【メモ・元ネタ】をベースに、最高のnote記事を書き上げてください。
 
-    【要件】
-    - 出力形式: マークダウン（見出しは ## や ### を使用）
-    - 文体: ${tonePrompt}
-    - 目標文字数: ${lengthPrompt}
-    - 読者が「スキ」したくなるような構成にしてください。
-    - 記事の最後には、読者へのアクション呼びかけ（フォローやコメントのお願いなど）を自然に入れてください。
-    ${customInstructions ? `- 追加指示: ${customInstructions}` : ""}
+    【設定】
+    ${tonePrompt}
+    目標文字数: ${lengthPrompt}
+    ${customInstructions ? `追加指示: ${customInstructions}` : ""}
 
-    【元のテキスト/メモ】
+    【メモ・元ネタ】
     ${sourceText}
   `;
 
   try {
     const result = await model.generateContentStream(prompt);
 
-    // ストリーム処理
     for await (const chunk of result.stream) {
       const chunkText = chunk.text();
       onStream(chunkText);
@@ -79,6 +98,69 @@ async function streamGeminiContent({
     throw error;
   }
 }
+
+// Function to generate image prompt based on text
+async function generateImagePrompt(apiKey: string, articleText: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  const prompt = `
+    以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
+    
+    【要件】
+    - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
+    - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
+    - "No text" (文字を含まない) という指示を必ず含めてください。
+    - 具体的すぎる描写よりも、記事のテーマや感情を表現する抽象的な概念ビジュアルが良いです。
+
+    【記事の抜粋】
+    ${articleText.substring(0, 1000)}...
+  `;
+
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+}
+
+async function generateImage(apiKey: string, imagePrompt: string): Promise<string> {
+  try {
+    // User specifically requested 'gemini-3-pro-image-preview'.
+    // We attempt to call using the REST API pattern for standard GenAI tools if SDK doesn't support it directly.
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: imagePrompt }] }]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Image model request failed: ${response.statusText} (${response.status})`);
+    }
+
+    const data = await response.json();
+
+    if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
+      const part = data.candidates[0].content.parts[0];
+      // Check for inline data (base64)
+      if (part.inline_data) {
+        return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
+      }
+      // Sometimes it might return a URI or different format depending on the beta model
+      if (part.text && part.text.startsWith("http")) {
+        return part.text;
+      }
+    }
+
+    throw new Error("Image data not found in response. Response might not contain an image.");
+
+  } catch (e) {
+    console.warn("Image generation failed", e);
+    throw e;
+  }
+}
+
 
 // --- Components ---
 
@@ -109,7 +191,8 @@ function ApiKeyModal({ isOpen, onClose, onSave, currentKey }: { isOpen: boolean,
           </div>
 
           <p className="text-sm text-gray-500 mb-4">
-            Google Gemini APIキーを入力してください。キーはブラウザ内にのみ保存され、外部に送信されることはありません。
+            Google Gemini APIキーを入力してください。<br />
+            画像生成など高度な機能を利用するためには、適切な権限を持つAPIキーが必要です。
             <br />
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-note-brand underline hover:text-green-600">
               APIキーを取得する
@@ -157,6 +240,9 @@ export default function Home() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
   // Load API key from local storage
   useEffect(() => {
     const savedKey = localStorage.getItem("gemini_api_key");
@@ -182,7 +268,8 @@ export default function Home() {
     if (!inputText.trim()) return;
 
     setIsProcessing(true);
-    setOutputText(""); // Clear previous output
+    setOutputText("");
+    setGeneratedImage(null); // Reset image
 
     try {
       await streamGeminiContent({
@@ -193,13 +280,39 @@ export default function Home() {
         customInstructions,
         onStream: (chunk) => setOutputText(prev => prev + chunk)
       });
-      showNotification("記事の生成が完了しました！", "success");
+      showNotification("記事の生成が完了しました！次は画像を生成できます。", "success");
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const err = error as any;
       showNotification("生成エラー: " + (err.message || "不明なエラー"), "error");
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleGenerateImage = async () => {
+    if (!apiKey || !outputText) return;
+
+    setIsGeneratingImage(true);
+    try {
+      // 1. Generate Prompt
+      const imagePrompt = await generateImagePrompt(apiKey, outputText);
+      console.log("Generated Image Prompt:", imagePrompt);
+
+      // 2. Generate Image
+      // User requested "use gemini-3-pro-image-preview", so we try.
+
+      const imageUrl = await generateImage(apiKey, imagePrompt);
+      setGeneratedImage(imageUrl);
+      showNotification("ヘッダー画像を生成しました！", "success");
+
+    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = error as any;
+      console.error(err);
+      showNotification("画像生成エラー: " + (err.message || "モデルが利用できません"), "error");
+    } finally {
+      setIsGeneratingImage(false);
     }
   };
 
@@ -287,7 +400,6 @@ export default function Home() {
               />
             </div>
 
-            {/* Custom Instructions (Collapsible-ish feel) */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <input
                 type="text"
@@ -359,7 +471,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-4 space-y-3">
                   <button
                     onClick={handleGenerate}
                     disabled={isProcessing || !inputText}
@@ -379,6 +491,27 @@ export default function Home() {
                       </>
                     )}
                   </button>
+
+                  <button
+                    onClick={handleGenerateImage}
+                    disabled={isGeneratingImage || !outputText}
+                    className={cn(
+                      "group w-full py-3 rounded-xl flex items-center justify-center gap-2 font-bold transition-all border-2",
+                      isGeneratingImage || !outputText
+                        ? "border-gray-100 text-gray-300 cursor-not-allowed"
+                        : "border-note-brand/20 text-note-brand hover:bg-green-50 hover:border-note-brand"
+                    )}
+                  >
+                    {isGeneratingImage ? (
+                      <RefreshCw className="animate-spin" size={18} />
+                    ) : (
+                      <>
+                        <ImageIcon size={18} />
+                        ヘッダー画像を生成
+                      </>
+                    )}
+                  </button>
+
                   {!apiKey && (
                     <p className="text-xs text-red-500 text-center mt-2">
                       ※APIキーの設定が必要です
@@ -427,6 +560,24 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Generated Image Preview Area */}
+                  {generatedImage && (
+                    <div className="mb-6 relative rounded-xl overflow-hidden border border-gray-100 shadow-sm group/image">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={generatedImage} alt="Generated Header" className="w-full h-48 object-cover object-center" />
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/image:opacity-100 transition-opacity">
+                        <a
+                          href={generatedImage}
+                          download="note-header.png"
+                          className="flex items-center gap-2 bg-white text-gray-900 px-4 py-2 rounded-full font-bold text-sm transform scale-95 group-hover/image:scale-100 transition-transform"
+                        >
+                          <Download size={16} />
+                          ダウンロード
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
                     <div className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-gray-800 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-note-brand">
