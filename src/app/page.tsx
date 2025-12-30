@@ -273,6 +273,69 @@ function ProgressLog({ logs }: { logs: string[] }) {
 }
 
 
+function ScoreMeter({ score, summary }: { score: number, summary: string }) {
+  const r = 70;
+  const c = 2 * Math.PI * r;
+  const offset = c - (score / 100) * c;
+
+  return (
+    <div className="flex flex-col items-center justify-center mb-8">
+      <div className="relative w-40 h-40 flex items-center justify-center mb-4">
+        <svg className="w-full h-full transform -rotate-90">
+          <circle cx="80" cy="80" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="12" />
+          <circle
+            cx="80" cy="80" r={r} fill="none" stroke="url(#gradient)" strokeWidth="12"
+            strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+            className="transition-all duration-1000 ease-out"
+          />
+          <defs>
+            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#7B61FF" />
+              <stop offset="100%" stopColor="#4DA3FF" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div className="absolute flex flex-col items-center">
+          <span className="text-4xl font-bold text-white">{score}</span>
+          <span className="text-xs text-white/50">/100</span>
+        </div>
+      </div>
+      <div className="px-4 py-1 rounded-full bg-white/10 text-white font-bold text-sm border border-white/10 backdrop-blur-sm">
+        {summary}
+      </div>
+    </div>
+  );
+}
+
+function ScoreBars({ details, metrics }: { details: ArticleScore['details'], metrics: ArticleScore['metrics'] }) {
+  const items = [
+    { label: "文字数達成度", score: details.length.score, val: `${metrics.actualLength}字` },
+    { label: "読みやすさ", score: details.readability.score, val: `${metrics.avgSentenceLength}文字/文` },
+    { label: "構成の質", score: details.structure.score, val: `H2:${metrics.h2Count} H3:${metrics.h3Count}` },
+    { label: "充実度", score: details.richness.score, val: `段落:${metrics.paragraphCount}` },
+    { label: "SEO最適度", score: details.seo.score, val: `${metrics.titleLength}字` }
+  ];
+
+  return (
+    <div className="space-y-4">
+      {items.map((item, i) => (
+        <div key={i} className="flex flex-col gap-1">
+          <div className="flex justify-between text-xs text-white/70 mb-1">
+            <span>{item.label}</span>
+            <span>{item.val}</span>
+          </div>
+          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-1000"
+              style={{ width: `${item.score}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // --- Main Page Updated Logic ---
 
 export default function Home() {
