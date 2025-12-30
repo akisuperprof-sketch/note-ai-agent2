@@ -445,7 +445,9 @@ export default function Home() {
           });
 
           if (!imgRes.ok) {
-            console.error("Image generation failed");
+            const errData = await imgRes.json().catch(() => ({ error: "Unknown Image Error" }));
+            console.error("Image generation failed:", errData);
+            await addLog(`画像生成エラー: ${errData.error}`, 3000);
           } else {
             const imgData = await imgRes.json();
             if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
