@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         } = body;
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
         const prompt = `
 あなたは「note記事自動生成AIエージェント」です。出力は日本語。冗長な前置き不要。ユーザーがそのままnoteに貼れる完成原稿を作る。記事品質は読みやすさ最優先。見出し階層はH2中心、必要ならH3を1〜2個だけ。箇条書きは多用しすぎず、要点は短く。結論→理由→手順→注意点→まとめの順に整える。本文の途中に画像は挿入しない。

@@ -505,7 +505,7 @@ export default function Home() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={generatedImage} alt="Generated Header" className="w-full rounded-[20px] aspect-video object-cover" />
                   <div className="p-4">
-                    <p className="text-xs text-white/50 font-mono mb-2">IMAGE MODEL: GEMINI-2.0-FLASH-EXP</p>
+                    <p className="text-xs text-white/50 font-mono mb-2">IMAGE MODEL: GEMINI-3-PRO-IMAGE-PREVIEW (Nano Banana Pro)</p>
                     <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline">画像をダウンロード</a>
                   </div>
                 </div>
@@ -515,7 +515,7 @@ export default function Home() {
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="font-bold text-white/70">記事本文</h3>
-                    <p className="text-xs text-white/30 font-mono mt-1">TEXT MODEL: GEMINI-2.0-FLASH</p>
+                    <p className="text-xs text-white/30 font-mono mt-1">TEXT MODEL: GEMINI-3-FLASH-PREVIEW</p>
                   </div>
                   <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm font-bold hover:bg-purple-500 transition-colors">
                     <Copy size={16} /> コピー

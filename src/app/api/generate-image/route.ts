@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
         if (!imagePrompt) {
             // 1. Generate Image Prompt (Fallback)
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
             const promptEngineering = `
         以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
@@ -43,8 +43,8 @@ export async function POST(req: NextRequest) {
         }
 
         // 2. Call Image Generation Model
-        // Using gemini-2.0-flash-exp which often supports Image Generation in the latest API
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
+        // Primary: Gemini 3 Pro Image Preview (Nano Banana Pro)
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -58,9 +58,9 @@ export async function POST(req: NextRequest) {
         });
 
         if (!response.ok) {
-            console.warn("gemini-2.0-flash-exp failed, trying fallback to imagen-3.0-generate-001");
-            // Fallback: Try Imagen 3 Model
-            const fallbackResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${apiKey}`, {
+            console.warn("gemini-3-pro-image-preview failed, trying fallback to models/nano-banana-pro-preview");
+            // Fallback: Try Nano Banana Pro Preview explicitly if the alias fails
+            const fallbackResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/nano-banana-pro-preview:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
                 const part = data.candidates[0].content.parts[0];
                 if (part.inline_data) {
                     const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-                    return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: "imagen-3.0-generate-001" });
+                    return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: "nano-banana-pro-preview" });
                 }
             }
             throw new Error("No image data found in fallback response");
