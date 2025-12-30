@@ -58,9 +58,31 @@ export async function POST(req: NextRequest) {
         });
 
         if (!response.ok) {
-            // Debug: try to read error text
-            const errText = await response.text();
-            throw new Error(`Image model request failed: ${response.status} - ${errText}`);
+            console.warn("gemini-2.0-flash-exp failed, trying fallback to imagen-3.0-generate-001");
+            // Fallback: Try Imagen 3 Model
+            const fallbackResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: imagePrompt }] }],
+                    generationConfig: { responseMimeType: "image/jpeg" }
+                })
+            });
+
+            if (!fallbackResponse.ok) {
+                const errText = await response.text();
+                throw new Error(`Image model request failed (Primary & Fallback): ${response.status} - ${errText}`);
+            }
+            // Use fallback response
+            const data = await fallbackResponse.json();
+            if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
+                const part = data.candidates[0].content.parts[0];
+                if (part.inline_data) {
+                    const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
+                    return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: "imagen-3.0-generate-001" });
+                }
+            }
+            throw new Error("No image data found in fallback response");
         }
 
         const data = await response.json();
