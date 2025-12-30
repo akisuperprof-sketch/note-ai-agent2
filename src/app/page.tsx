@@ -352,7 +352,10 @@ export default function Home() {
           body: JSON.stringify(data),
         });
 
-        if (!response.ok) throw new Error("Generation failed");
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Server Error: ${response.status}`);
+        }
 
         // Start streaming logic (simulated progress for distinct logs)
         // Actually we just stream the text and update logs based on content or time
@@ -424,8 +427,9 @@ export default function Home() {
 
       } catch (e) {
         console.error(e);
+        const err = e as Error;
         setStatus("error");
-        setLogs(prev => [...prev, "エラーが発生しました"]);
+        setLogs(prev => [...prev, `エラー: ${err.message}`]);
       }
     };
 
