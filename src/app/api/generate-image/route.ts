@@ -70,8 +70,8 @@ export async function POST(req: NextRequest) {
             });
 
             if (!fallbackResponse.ok) {
-                const errText = await response.text();
-                throw new Error(`Image model request failed (Primary & Fallback): ${response.status} - ${errText}`);
+                const errText = await fallbackResponse.text();
+                throw new Error(`Image model request failed (Primary & Fallback): ${fallbackResponse.status} - ${errText}`);
             }
             // Use fallback response
             const data = await fallbackResponse.json();
