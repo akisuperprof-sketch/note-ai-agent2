@@ -26,21 +26,26 @@ export async function POST(req: NextRequest) {
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 const promptEngineering = `
-            以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
-            
-            【ユーザー指定パラメータ】
-            - 画風 (Visual Style): ${visualStyle || "指定なし (フラットデザイン、ミニマル、モダン)"}
-            - キャラクター (Character): ${character || "指定なし"}
+            You are an expert AI art director. Create a detailed English image generation prompt for a blog header image based on the article content and user preferences below.
 
-            【要件】
-            - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
-            - 画風の指示が「写真リアル」なら "photorealistic, 8k, highly detailed, cinematic lighting" を含めてください。
-            - 画風の指示が「アニメ塗り」なら "anime style, cel shaded, vibrant colors, makoto shinkai style" を含めてください。
-            - キャラクターの指定がある場合（例: 日本人女性）、それをメインの被写体として詳細に描写してください（例: "Japanese woman in her 20s, business casual attire, smiling, working on laptop"など）。
-            - 文字 (Text) は **絶対に含めないでください** ("No text", "textless")。
-            
-            【記事の抜粋】
+            【User Preferences】
+            - Visual Style: ${visualStyle || "Modern Flat Design"}
+            - Character: ${character || "None (Abstract/Scenery only)"}
+
+            【Best Practice Style Modifiers】
+            If Style is "Anime/Illustration": "anime style, cel shaded, vibrant colors, makoto shinkai style, lo-fi hip hop aesthetic, highly detailed background, atmospheric lighting, 8k resolution"
+            If Style is "Photorealistic": "cinematic shot, 8k, photorealistic, depth of field, soft natural lighting, shot on 35mm lens, high quality"
+            If Style is "Watercolour": "watercolor painting, soft brush strokes, pastel colors, artistic, dreamy atmosphere, paper texture"
+            If "Character" is specified: Description should focus on the character in a relevant setting (e.g., if "Japanese Woman", describe "Japanese woman in her 20s, business casual, smiling, natural pose").
+
+            【Article Excerpt】
             ${articleText.substring(0, 800)}...
+
+            【Output Requirement】
+            - Return ONLY the English prompt.
+            - Start with the core subject (Character or Scene).
+            - Append the Style Modifiers.
+            - ALWAYS end with: ", no text, textless, high quality, 16:9 aspect ratio".
           `;
 
                 const promptResult = await model.generateContent(promptEngineering);
