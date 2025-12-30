@@ -528,9 +528,14 @@ export default function Home() {
             }),
           });
           const imgData = await imgRes.json();
-          if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
-          if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
-          if (imgData.model) setImageModel(imgData.model);
+          if (imgRes.ok && imgData.imageUrl) {
+            setGeneratedImage(imgData.imageUrl);
+            if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
+            if (imgData.model) setImageModel(imgData.model);
+          } else {
+            const errMsg = imgData.error || "アイキャッチの生成に失敗しました";
+            await addLog(`アイキャッチ生成エラー: ${errMsg}`, 2000);
+          }
         } catch (e) { console.error("Header image failed", e); }
 
         // --- 2. Inline Image ---
@@ -549,11 +554,15 @@ export default function Home() {
               visualStyle: "Simple Flat Illustration",
               character: data.character,
               referenceImage: data.referenceImage,
-              promptOverride: `Simple clean flat anime illustration of ${data.character || 'a character'} showing "${headingText}", educational context, textless background, bright colors.`
+              promptOverride: `Simple clean flat anime illustration of ${data.character === '指定なし' ? 'a cozy object' : data.character} showing "${headingText}", educational context, textless background, bright colors.`
             }),
           });
           const imgData = await imgRes.json();
-          if (imgData.imageUrl) setInlineImage(imgData.imageUrl);
+          if (imgRes.ok && imgData.imageUrl) {
+            setInlineImage(imgData.imageUrl);
+          } else {
+            console.warn("Inline image failed:", imgData.error);
+          }
         } catch (e) { console.error("Inline image failed", e); }
 
         setStatus("done");

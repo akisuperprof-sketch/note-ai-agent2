@@ -23,24 +23,25 @@ export async function POST(req: NextRequest) {
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
+                const subjectSetting = character === "指定なし" ? "No specific character. Focus on environment, landscape, or symbolic objects." : character;
+
                 const promptEngineering = `
-            You are a Visual Art Director. Based on the Article Title below, describe ONE singular, powerful visual scene (WITHOUT any text/letters) that works as a blog header.
+            You are a Visual Art Director. Based on the Article Title below, describe ONE singular, powerful visual scene (WITHOUT any text/letters) that captures the ATMOSPHERE and ESSENCE of the topic.
             
             【Article Title】
             ${title || articleText.substring(0, 100)}
 
-            【Target Vibe】
-            - Visual Style: ${visualStyle || "Anime/Illustration"}
-            - Main Subject: ${character || "Context-dependent"}
-            ${referenceImage ? "- Style Guide: Match the art style and characteristics of the provided image." : ""}
-            - Thumbnail Goal: Clear focal point, high-contrast, captures attention in 3 seconds.
+            【Visual Strategy】
+            - Visual Style: ${visualStyle || "Modern/Illustrative"}
+            - Focus: ${subjectSetting}
+            - Atmosphere: ${title?.includes("隠れ家") || title?.includes("カフェ") ? "Cozy, quiet, hidden oasis, morning or warm lighting" : "Consistent with the title's vibe"}
+            ${referenceImage ? "- Character/Style Reference: Follow the appearance and style of the attached image." : ""}
+            - Thumbail Rule: High contrast, one clear focal point, 16:9 cinematic shot.
 
-            【Instructions for Output】
-            - STRICTLY NO TEXT, NO LETTERS, NO WORDS in the image.
-            - Focus on a symbolic visual metaphor for the title.
-            - Describe lighting, color, composition (e.g., Rim lighting, vibrant colors, central focus).
-            - Max 40 words.
-            - Return ONLY the English prompt string.
+            【Output Rules】
+            - STRICTLY NO TEXT, NO LETTERS.
+            - Focus on sensory details: light, shadow, texture, color.
+            - Max 40 words. Return ONLY English text.
           `;
 
                 const promptResult = await model.generateContent(promptEngineering);
