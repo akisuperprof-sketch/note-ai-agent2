@@ -407,6 +407,7 @@ export default function Home() {
           } else {
             const imgData = await imgRes.json();
             if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
+            if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
           }
 
         } catch (e) {

@@ -70,11 +70,11 @@ export async function POST(req: NextRequest) {
             // Check for inline data (base64)
             if (part.inline_data) {
                 const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-                return NextResponse.json({ imageUrl });
+                return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt });
             }
             // Check for text url
             if (part.text && part.text.startsWith("http")) {
-                return NextResponse.json({ imageUrl: part.text });
+                return NextResponse.json({ imageUrl: part.text, generatedPrompt: imagePrompt });
             }
         }
 
