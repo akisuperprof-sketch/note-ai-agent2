@@ -70,62 +70,70 @@ export async function POST(req: NextRequest) {
         ];
 
         for (const modelName of modelsToTry) {
-            try {
-                console.log(`Trying multimodal image generation with model: ${modelName}`);
-
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            role: "user",
-                            parts: [{ text: imagePrompt }]
-                        }],
-                        generationConfig: {
-                            responseModalities: ["IMAGE"],
-                            imageConfig: {
-                                aspectRatio: "16:9"
-                            }
-                        }
-                    })
-                });
-
-                const responseText = await response.text();
-
-                if (!response.ok) {
-                    errors.push({ model: modelName, status: response.status, error: responseText });
-                    console.warn(`${modelName} failing (multimodal): ${response.status} - ${responseText}`);
-                    continue;
+            // Variations of request bodies to ensure compatibility with preview models
+            const requestVariations = [
+                {
+                    contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+                    generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "16:9" } }
+                },
+                {
+                    contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+                    generationConfig: { response_modalities: ["IMAGE"], image_config: { aspect_ratio: "16:9" } }
                 }
+            ];
 
-                let data;
+            for (const body of requestVariations) {
                 try {
-                    data = JSON.parse(responseText);
-                } catch (e) {
-                    errors.push({ model: modelName, error: "Failed to parse JSON response" });
-                    continue;
-                }
+                    console.log(`Trying multimodal image generation with model: ${modelName} var: ${Object.keys(body.generationConfig).join(",")}`);
 
-                if (data.candidates && data.candidates[0]?.content?.parts) {
-                    const parts = data.candidates[0].content.parts;
-                    const imagePart = parts.find((p: any) => p.inline_data);
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
 
-                    if (imagePart?.inline_data) {
-                        const imageUrl = `data:${imagePart.inline_data.mime_type};base64,${imagePart.inline_data.data}`;
-                        return NextResponse.json({
-                            imageUrl,
-                            generatedPrompt: imagePrompt,
-                            model: modelName,
-                            success: true
-                        });
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        errors.push({ model: modelName, status: response.status, error: responseText.slice(0, 300) });
+                        console.warn(`${modelName} failing (multimodal): ${response.status}`);
+                        continue;
                     }
+
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        errors.push({ model: modelName, error: "Failed to parse JSON response" });
+                        continue;
+                    }
+
+                    if (data.candidates && data.candidates[0]?.content?.parts) {
+                        const parts = data.candidates[0].content.parts;
+                        // Search for the image part (can be inline_data or inlineData in some previews)
+                        const imagePart = parts.find((p: any) => p.inline_data || p.inlineData);
+                        const actualPart = imagePart?.inline_data || imagePart?.inlineData;
+
+                        if (actualPart?.data) {
+                            const mimeType = actualPart.mime_type || actualPart.mimeType || "image/png";
+                            const imageUrl = `data:${mimeType};base64,${actualPart.data}`;
+
+                            console.log(`Success with native model: ${modelName}`);
+                            return NextResponse.json({
+                                imageUrl,
+                                generatedPrompt: imagePrompt,
+                                model: modelName,
+                                success: true
+                            });
+                        }
+                    }
+
+                    errors.push({ model: modelName, error: "No image part found in multimodal response" });
+
+                } catch (e: any) {
+                    console.error(`Exception with ${modelName}:`, e);
+                    errors.push({ model: modelName, exception: e.message });
                 }
-
-                errors.push({ model: modelName, error: "No image part found in multimodal response", data });
-
-            } catch (e: any) {
-                console.error(`Exception with ${modelName}:`, e);
-                errors.push({ model: modelName, exception: e.message });
             }
         }
 
@@ -137,9 +145,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             imageUrl: pollinationUrl,
             generatedPrompt: imagePrompt,
-            model: "flux (Pollinations Fallback)",
+            model: "flux (Fallback)",
             errors: errors,
-            notice: "Gemini Image Generation models currently unavailable. Falling back to Pollinations (Watermarked)."
+            notice: "Gemini Native Image API failed. Used Pollinations for visibility."
         });
     } catch (error) {
         console.error("Generate Image API Error:", error);
