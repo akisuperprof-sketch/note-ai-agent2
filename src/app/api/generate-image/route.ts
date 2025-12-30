@@ -19,47 +19,39 @@ export async function POST(req: NextRequest) {
 
         if (!imagePrompt) {
             try {
-                // 1. Generate Image Prompt
+                // 1. Generate a CONCISE Visual Scene Description first (to avoid passing raw text to image model)
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 const promptEngineering = `
-            You are a Professional Visual Designer specialized in note.com (Japanese blogging platform) thumbnails.
-            Your goal is to create a prompt for an eye-catching header image that captures a viewer's attention in 3 seconds.
-
-            【Core Visual DNA (Derived from Expert References)】
-            - Subject: Clear, high-quality, expressive.
-            - Background: Simple yet atmospheric, with good contrast to the subject.
-            - Lighting: Rim lighting to separate subject from background, soft cinematic shadows.
-            - Composition: Central or Rule of Thirds focus, leaving negative space for titles (titles will be added later by the system).
-
-            【User Preferences】
-            - Target Style: ${visualStyle || "Anime/Illustration"}
+            You are a Visual Art Director. Based on the article context below, describe ONE singular, powerful visual scene (without text) that works as a blog header.
+            
+            【Target Vibe】
+            - Visual Style: ${visualStyle || "Anime/Illustration"}
             - Main Subject: ${character || "Context-dependent"}
-            ${referenceImage ? "- Reference Analysis: Use a similar art style and character placement to the uploaded image." : ""}
-
-            【Style Logic】
-            - If "Anime/Illustration": "clean anime line art, sharp focus, professional digital illustration, vibrant yet sophisticated colors, high-quality cel shading. Avoid messy textures."
-            - If "Photorealistic": "high-end commercial photography, soft bokeh, clean composition, professional lighting."
+            ${referenceImage ? "- Style Guide: Match the art style and character characteristics of the provided image." : ""}
+            - Thumbail Goal: Clear focal point, high-contrast, captures attention in 3 seconds.
 
             【Article Context】
-            ${articleText.substring(0, 1000)}
+            ${articleText.substring(0, 1500)}
 
-            【Output Requirement】
-            - Output ONLY the raw English prompt string. No conversational text.
-            - Subject first, then environment, then specific style/lighting keywords.
-            - Format: [Main Subject] in [Specific Setting], [Action/Pose], [Specific Art Style Keywords], [Lighting/Atmosphere Keywords], high resolution, extremely detailed, masterwork, 16:9 aspect ratio, textless, no logo.
+            【Instructions for Output】
+            - STRICTLY NO TEXT in the image. Output only physical visual descriptions.
+            - Describe lighting, color, composition (e.g., Rim lighting, vibrant colors, central focus).
+            - Max 50 words.
+            - Return ONLY the English prompt string.
           `;
 
                 const promptResult = await model.generateContent(promptEngineering);
-                imagePrompt = promptResult.response.text();
-                // Basic cleanup
-                imagePrompt = imagePrompt.replace(/^```(json|text)?\n/, '').replace(/\n```$/, '').trim();
-                console.log("Generated Image Prompt (Fallback):", imagePrompt);
+                let visualDescription = promptResult.response.text().trim();
+
+                // Construct Final Strict Prompt
+                imagePrompt = `${visualDescription}, high quality, extremely detailed, masterwork, 16:9 aspect ratio, textless, no text, no logo, no letters, no words.`;
+
+                console.log("Final Polished Image Prompt:", imagePrompt);
             } catch (promptError) {
                 console.error("Prompt generation failed:", promptError);
-                // Fallback prompt if AI fails
-                imagePrompt = "Abstract modern header image, minimal flat design, pastel colors, no text, corporate memphis style";
+                imagePrompt = "Abstract modern header image, minimal flat design, textless, 16:9 aspect ratio";
             }
         } else {
             console.log("Using Provided Image Prompt:", imagePrompt);
