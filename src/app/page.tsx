@@ -233,9 +233,9 @@ function ProgressLog({ logs }: { logs: string[] }) {
           </div>
         ))}
         {logs.length < 6 && (
-          <div className="flex items-center gap-4 opacity-50">
+          <div className="flex items-center gap-4">
             <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-purple-500 animate-spin shrink-0"></div>
-            <span className="text-lg text-white/50 animate-pulse">処理を実行中...</span>
+            <span className="text-lg text-white animate-pulse font-bold">現在生成中...</span>
           </div>
         )}
       </div>
