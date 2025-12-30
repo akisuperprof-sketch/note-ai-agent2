@@ -13,6 +13,9 @@ export type ArticleScore = {
         structure: ScoreDetail;
         richness: ScoreDetail;
         seo: ScoreDetail;
+        logicality: ScoreDetail;
+        empathy: ScoreDetail;
+        uniqueness: ScoreDetail;
     };
     metrics: {
         actualLength: number;
@@ -23,6 +26,9 @@ export type ArticleScore = {
         paragraphCount: number;
         hasList: boolean;
         titleLength: number;
+        logicKeywords: number;
+        empathyKeywords: number;
+        uniqueKeywords: number;
     };
 };
 
@@ -62,6 +68,30 @@ export function calculateArticleScore(
 
     const titleLength = title.length;
 
+    // --- Heuristics for new metrics ---
+    const logicWords = ["なぜなら", "したがって", "つまり", "しかし", "ゆえに", "結果として", "根拠"];
+    const empathyWords = ["悩み", "不安", "感じます", "ですね", "でしょう", "気持ち", "ではないでしょうか"];
+    const uniqueWords = ["私の", "僕の", "体験", "経験", "オリジナル", "独自", "発見した"];
+
+    const countMatches = (words: string[]) =>
+        words.reduce((count, word) => count + (articleText.split(word).length - 1), 0);
+
+    const logicKeywords = countMatches(logicWords);
+    const empathyKeywords = countMatches(empathyWords);
+    const uniqueKeywords = countMatches(uniqueWords);
+
+    // 論理性
+    let logicalityScore = 40 + (logicKeywords * 10);
+    logicalityScore = Math.min(logicalityScore, 100);
+
+    // 共感性
+    let empathyScore = 40 + (empathyKeywords * 10);
+    empathyScore = Math.min(empathyScore, 100);
+
+    // 独自性
+    let uniquenessScore = 30 + (uniqueKeywords * 15);
+    uniquenessScore = Math.min(uniquenessScore, 100);
+
     // 文字数達成度
     const lengthRatio = actualLength / targetLength;
     let lengthScore = 0;
@@ -96,11 +126,14 @@ export function calculateArticleScore(
     else if (titleLength >= 20 && titleLength <= 60) seoScore = 80;
 
     const total = Math.round(
-        lengthScore * 0.15 +
-        readabilityScore * 0.25 +
-        structureScore * 0.2 +
-        richnessScore * 0.2 +
-        seoScore * 0.2
+        lengthScore * 0.1 +
+        readabilityScore * 0.15 +
+        structureScore * 0.1 +
+        richnessScore * 0.1 +
+        seoScore * 0.1 +
+        logicalityScore * 0.15 +
+        empathyScore * 0.15 +
+        uniquenessScore * 0.15
     );
 
     const summary =
@@ -110,27 +143,14 @@ export function calculateArticleScore(
         total,
         summary,
         details: {
-            length: {
-                score: lengthScore,
-                value: actualLength,
-                label: "文字数達成度",
-            },
-            readability: {
-                score: readabilityScore,
-                value: avgSentenceLength,
-                label: "読みやすさ",
-            },
-            structure: {
-                score: structureScore,
-                value: h2Count + h3Count,
-                label: "構成の質",
-            },
-            richness: {
-                score: richnessScore,
-                value: paragraphCount,
-                label: "充実度",
-            },
+            length: { score: lengthScore, value: actualLength, label: "文字数達成度" },
+            readability: { score: readabilityScore, value: avgSentenceLength, label: "読みやすさ" },
+            structure: { score: structureScore, value: h2Count + h3Count, label: "構成の質" },
+            richness: { score: richnessScore, value: paragraphCount, label: "充実度" },
             seo: { score: seoScore, value: titleLength, label: "SEO最適度" },
+            logicality: { score: logicalityScore, value: logicKeywords, label: "論理性" },
+            empathy: { score: empathyScore, value: empathyKeywords, label: "共感性" },
+            uniqueness: { score: uniquenessScore, value: uniqueKeywords, label: "独自性" },
         },
         metrics: {
             actualLength,
@@ -141,6 +161,9 @@ export function calculateArticleScore(
             paragraphCount,
             hasList,
             titleLength,
+            logicKeywords,
+            empathyKeywords,
+            uniqueKeywords,
         },
     };
 }

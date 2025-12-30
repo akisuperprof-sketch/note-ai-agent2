@@ -396,6 +396,9 @@ function ScoreMeter({ score, summary }: { score: number, summary: string }) {
 function ScoreBars({ details, metrics }: { details: ArticleScore['details'], metrics: ArticleScore['metrics'] }) {
   const items = [
     { label: "文字数達成度", score: details.length.score, val: `${metrics.actualLength}字` },
+    { label: "論理性", score: details.logicality.score, val: `${metrics.logicKeywords}回` },
+    { label: "共感性", score: details.empathy.score, val: `${metrics.empathyKeywords}回` },
+    { label: "独自性", score: details.uniqueness.score, val: `${metrics.uniqueKeywords}回` },
     { label: "読みやすさ", score: details.readability.score, val: `${metrics.avgSentenceLength}文字/文` },
     { label: "構成の質", score: details.structure.score, val: `H2:${metrics.h2Count} H3:${metrics.h3Count}` },
     { label: "充実度", score: details.richness.score, val: `段落:${metrics.paragraphCount}` },
@@ -675,7 +678,7 @@ export default function Home() {
                     <Copy size={16} /> コピー
                   </button>
                 </div>
-                <div className="prose prose-invert prose-p:text-gray-300 prose-headings:text-white max-w-none">
+                <div className="prose prose-invert prose-p:text-gray-300 prose-headings:text-white max-w-none bg-black/20 rounded-xl p-4 max-h-[500px] overflow-y-auto custom-scrollbar">
                   <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{articleText}</pre>
                 </div>
               </div>
