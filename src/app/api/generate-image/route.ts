@@ -58,75 +58,106 @@ export async function POST(req: NextRequest) {
             console.log("Using Provided Image Prompt:", imagePrompt);
         }
 
-        const errors: string[] = [];
+        const errors: any[] = [];
 
         // 2. Call Image Generation Model
         const modelsToTry = [
             "gemini-3-pro-image-preview",
-            "gemini-2.0-flash-exp",
-            "gemini-2.0-flash",
-            "imagen-3.0-generate-001"
+            "nano-banana-pro-preview",
+            "gemini-2.0-flash-exp-image-generation",
+            "imagen-3.0-generate-001",
+            "imagen-3.0-generate-002",
+            "imagen-3.1-generate-001"
         ];
 
         for (const modelName of modelsToTry) {
-            try {
-                console.log(`Trying image generation with model: ${modelName}`);
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+            let triedWithMimeType = true;
+            let currentBody: any;
+            let response: Response;
+            let responseText: string;
+            let data: any;
+
+            // Loop to try with and without response_mime_type
+            for (let i = 0; i < 2; i++) { // Try at most twice: once with, once without
+                try {
+                    console.log(`Trying image generation with model: ${modelName} (attempt ${i + 1}, with_mime_type: ${triedWithMimeType})`);
+
+                    currentBody = {
                         contents: [{ parts: [{ text: imagePrompt }] }]
-                        // generationConfig removed to avoid INVALID_ARGUMENT
-                    })
-                });
+                    };
 
-                if (!response.ok) {
-                    const txt = await response.text();
-                    errors.push(`${modelName}: ${response.status} - ${txt}`);
-                    console.warn(`${modelName} failed with status ${response.status}`);
-                    continue; // Try next model
-                }
-
-                const data = await response.json();
-
-                // Validate Data
-                if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
-                    const part = data.candidates[0].content.parts[0];
-                    if (part.inline_data) {
-                        const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-                        return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: modelName });
+                    if (triedWithMimeType) {
+                        currentBody.generationConfig = {
+                            response_mime_type: "image/png"
+                        };
                     }
-                    if (part.text && part.text.startsWith("http")) {
-                        return NextResponse.json({ imageUrl: part.text, generatedPrompt: imagePrompt, model: modelName });
+
+                    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(currentBody)
+                    });
+
+                    responseText = await response.text();
+
+                    if (!response.ok) {
+                        // Check if the error is related to unsupported generationConfig
+                        if (responseText.includes("generationConfig") && triedWithMimeType) {
+                            console.warn(`Model ${modelName} failed with generationConfig error. Retrying without response_mime_type.`);
+                            triedWithMimeType = false; // Set flag to retry without mime type
+                            continue; // Retry the inner loop
+                        } else {
+                            errors.push({ model: modelName, status: response.status, error: responseText, triedWithMimeType });
+                            console.warn(`${modelName} failed: ${response.status} - ${responseText}`);
+                            break; // Exit inner loop, try next model
+                        }
                     }
+
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        errors.push({ model: modelName, error: "Failed to parse JSON response", triedWithMimeType });
+                        break; // Exit inner loop, try next model
+                    }
+
+                    // Check for valid image in candidates
+                    if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
+                        const part = data.candidates[0].content.parts[0];
+                        if (part.inline_data) {
+                            const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
+                            return NextResponse.json({
+                                imageUrl,
+                                generatedPrompt: imagePrompt,
+                                model: modelName,
+                                success: true
+                            });
+                        }
+                    }
+
+                    errors.push({ model: modelName, error: "Response OK but no image data/parts found", data, triedWithMimeType });
+                    break; // Exit inner loop, try next model
+
+                } catch (e: any) {
+                    console.error(`Exception with ${modelName} (triedWithMimeType: ${triedWithMimeType}):`, e);
+                    errors.push({ model: modelName, exception: e.message, triedWithMimeType });
+                    break; // Exit inner loop, try next model
                 }
-
-                // If we get here, response was OK but data was missing/invalid
-                errors.push(`${modelName}: 200 OK but no image data found.`);
-                console.warn(`${modelName} returned 200 but no valid image data.`);
-
-            } catch (e) {
-                console.error(`Error trying ${modelName}:`, e);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                errors.push(`${modelName}: Exception - ${(e as any).message}`);
             }
         }
 
         // 3. Final Fallback: Pollinations AI (If all Google models failed)
-        // We force this fallback even if Google models fail, to ensure user gets SOMETHING.
-        if (errors.length === modelsToTry.length) {
-            console.log("All Google models failed. Using Pollinations AI as guaranteed fallback.");
-            const encodedPrompt = encodeURIComponent(imagePrompt);
-            const pollinationUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=flux&seed=${Math.floor(Math.random() * 1000)}`;
+        // Adding seed and explicit flux model for better quality, but user is right about the watermark.
+        console.warn("All Google image models failed. Falling back to Pollinations.");
+        const seed = Math.floor(Math.random() * 1000000);
+        const pollinationUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1280&height=720&model=flux&seed=${seed}&nologo=true&enhance=true`;
 
-            // Return URL immediately. Let the client browser handle the loading.
-            // Server-side fetching might timeout or be blocked, but client might succeed.
-            return NextResponse.json({
-                imageUrl: pollinationUrl,
-                generatedPrompt: imagePrompt,
-                model: "pollinations-ai-flux (Fallback)"
-            });
-        }
+        return NextResponse.json({
+            imageUrl: pollinationUrl,
+            generatedPrompt: imagePrompt,
+            model: "flux (Pollinations Fallback)",
+            errors: errors,
+            notice: "Gemini Image Generation models currently unavailable. Falling back to Pollinations."
+        });
 
         // If all failed
         // List available models for debug
