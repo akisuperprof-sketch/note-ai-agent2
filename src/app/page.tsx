@@ -517,11 +517,50 @@ export default function Home() {
         <InputForm onSubmit={handleGenerate} isGenerating={false} />
       )}
 
+// ... (previous code)
+
       {(status === "writing" || status === "polish" || status === "scoring" || status === "image_prompt") && (
-        <ProgressLog logs={logs} />
+        <div className="space-y-6">
+          <ProgressLog logs={logs} />
+
+          {/* Real-time Preview Window */}
+          <div className="glass-card p-4 rounded-[20px] bg-black/40 border border-white/10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/20"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/20"></div>
+                </div>
+                <span className="text-xs font-mono text-white/30 ml-2">GENERATING_PREVIEW.md</span>
+              </div>
+              {/* Character Count Progress */}
+              <div className="flex items-center gap-3">
+                <div className="text-xs font-mono text-white/50">
+                  {articleText.length.toLocaleString()} / {(inputs?.targetLength || 5000).toLocaleString()} chars
+                </div>
+                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300"
+                    style={{ width: `${Math.min(100, (articleText.length / (inputs?.targetLength || 5000)) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <div className="h-48 overflow-y-auto font-mono text-xs md:text-sm text-gray-400 leading-relaxed scrollbar-hide">
+              <pre className="whitespace-pre-wrap font-sans">
+                {articleText || <span className="animate-pulse">Waiting for stream...</span>}
+                <span className="inline-block w-2 h-4 bg-purple-500 ml-1 animate-pulse align-middle"></span>
+              </pre>
+            </div>
+          </div>
+        </div>
       )}
 
+// ... (rest of the code)
+
       {status === "done" && (
+        // ... (rest of the code)
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
           <div className="flex gap-4 mb-6">
             <button
