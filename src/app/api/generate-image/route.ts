@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: imagePrompt }] }],
-                generationConfig: { responseMimeType: "image/jpeg" }
+                // generationConfig removed to fix INVALID_ARGUMENT
             })
         });
 
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: imagePrompt }] }],
-                    generationConfig: { responseMimeType: "image/jpeg" }
+                    // generationConfig removed
                 })
             });
         }
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: imagePrompt }] }],
-                    generationConfig: { responseMimeType: "image/jpeg" }
+                    // generationConfig removed
                 })
             });
         }
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: imagePrompt }] }],
-                    generationConfig: { responseMimeType: "image/jpeg" }
+                    // generationConfig removed
                 })
             });
         }
