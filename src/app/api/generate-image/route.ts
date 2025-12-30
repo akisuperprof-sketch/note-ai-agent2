@@ -106,28 +106,19 @@ export async function POST(req: NextRequest) {
         }
 
         // 3. Final Fallback: Pollinations AI (If all Google models failed)
+        // We force this fallback even if Google models fail, to ensure user gets SOMETHING.
         if (errors.length === modelsToTry.length) {
-            try {
-                console.log("All Google models failed. Trying Pollinations AI as final fallback.");
-                const encodedPrompt = encodeURIComponent(imagePrompt);
-                // Pollinations returns the image directly, so we just construct the URL
-                const pollinationUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=flux&seed=${Math.floor(Math.random() * 1000)}`;
+            console.log("All Google models failed. Using Pollinations AI as guaranteed fallback.");
+            const encodedPrompt = encodeURIComponent(imagePrompt);
+            const pollinationUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=flux&seed=${Math.floor(Math.random() * 1000)}`;
 
-                // Verify if it works (optional, but good for validation)
-                const checkRes = await fetch(pollinationUrl);
-                if (checkRes.ok) {
-                    return NextResponse.json({
-                        imageUrl: pollinationUrl,
-                        generatedPrompt: imagePrompt,
-                        model: "pollinations-ai-flux"
-                    });
-                } else {
-                    errors.push(`pollinations: ${checkRes.status} - ${await checkRes.text()}`);
-                }
-            } catch (e) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                errors.push(`pollinations: Exception - ${(e as any).message}`);
-            }
+            // Return URL immediately. Let the client browser handle the loading.
+            // Server-side fetching might timeout or be blocked, but client might succeed.
+            return NextResponse.json({
+                imageUrl: pollinationUrl,
+                generatedPrompt: imagePrompt,
+                model: "pollinations-ai-flux (Fallback)"
+            });
         }
 
         // If all failed
