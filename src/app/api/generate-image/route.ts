@@ -18,32 +18,44 @@ export async function POST(req: NextRequest) {
         let imagePrompt = promptOverride;
 
         if (!imagePrompt) {
-            // 1. Generate Image Prompt (Fallback)
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+            try {
+                // 1. Generate Image Prompt (Fallback)
+                // Use gemini-2.0-flash-exp as it is more stable than 3-preview for pure text sometimes, 
+                // or stick to gemini-3-flash-preview but handle error.
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
-            const promptEngineering = `
-        以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
-        
-        【要件】
-        - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
-        - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
-        - "No text" (文字を含まない) という指示を必ず含めてください。
-        - 具体的すぎる描写よりも、記事のテーマや感情を表現する抽象的な概念ビジュアルが良いです。
+                const promptEngineering = `
+            以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
+            
+            【要件】
+            - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
+            - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
+            - "No text" (文字を含まない) という指示を必ず含めてください。
+            
+            【記事の抜粋】
+            ${articleText.substring(0, 800)}...
+          `;
 
-        【記事の抜粋】
-        ${articleText.substring(0, 1000)}...
-      `;
-
-            const promptResult = await model.generateContent(promptEngineering);
-            imagePrompt = promptResult.response.text();
-            console.log("Generated Image Prompt (Fallback):", imagePrompt);
+                const promptResult = await model.generateContent(promptEngineering);
+                imagePrompt = promptResult.response.text();
+                // Basic cleanup
+                imagePrompt = imagePrompt.replace(/^```(json|text)?\n/, '').replace(/\n```$/, '').trim();
+                console.log("Generated Image Prompt (Fallback):", imagePrompt);
+            } catch (promptError) {
+                console.error("Prompt generation failed:", promptError);
+                // Fallback prompt if AI fails
+                imagePrompt = "Abstract modern header image, minimal flat design, pastel colors, no text, corporate memphis style";
+            }
         } else {
             console.log("Using Provided Image Prompt:", imagePrompt);
         }
 
+        const errors: string[] = [];
+
         // 2. Call Image Generation Model
-        // Priority 1: Gemini 3 Pro Image Preview (User Request)
+        // Priority 1: Gemini 3 Pro Image Preview
+        let usedModel = "gemini-3-pro-image-preview";
         let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -53,12 +65,13 @@ export async function POST(req: NextRequest) {
             })
         });
 
-        let usedModel = "gemini-3-pro-image-preview";
-
         if (!response.ok) {
+            const txt = await response.text();
+            errors.push(`${usedModel}: ${response.status} - ${txt}`);
             console.warn(`${usedModel} failed, trying fallback to gemini-2.0-flash-exp`);
 
-            // Priority 2: Gemini 2.0 Flash Exp (Known to work often)
+            // Priority 2: Gemini 2.0 Flash Exp
+            usedModel = "gemini-2.0-flash-exp";
             response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -67,13 +80,15 @@ export async function POST(req: NextRequest) {
                     generationConfig: { responseMimeType: "image/jpeg" }
                 })
             });
-            usedModel = "gemini-2.0-flash-exp";
         }
 
         if (!response.ok) {
+            const txt = await response.text();
+            errors.push(`${usedModel}: ${response.status} - ${txt}`);
             console.warn(`${usedModel} failed, trying fallback to imagen-3.0-generate-001`);
 
-            // Priority 3: Imagen 3.0 (Dedicated Image Generation)
+            // Priority 3: Imagen 3.0
+            usedModel = "imagen-3.0-generate-001";
             response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -82,12 +97,18 @@ export async function POST(req: NextRequest) {
                     generationConfig: { responseMimeType: "image/jpeg" }
                 })
             });
-            usedModel = "imagen-3.0-generate-001";
         }
 
         if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`All image models failed. Last tried: ${usedModel}, Status: ${response.status} - ${errText}`);
+            const txt = await response.text();
+            errors.push(`${usedModel}: ${response.status} - ${txt}`);
+            // If completely failed, list available models for debug
+            const listModelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            const listData = await listModelsRes.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const available = listData.models?.map((m: any) => m.name) || [];
+
+            throw new Error(`All image models failed. Errors: ${JSON.stringify(errors)}. Available keys: ${JSON.stringify(available)}`);
         }
 
         const data = await response.json();
