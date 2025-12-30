@@ -130,28 +130,20 @@ function InputForm({
   const [targetLength, setTargetLength] = useState(5000);
   const [tone, setTone] = useState("やさしい");
   const [differentiation, setDifferentiation] = useState("");
+  const [visualStyle, setVisualStyle] = useState("写真リアル");
+  const [character, setCharacter] = useState("指定なし");
 
-  // AI Recommendation Mock Logic
   const handleAutoRecommend = () => {
-    if (!topic) {
-      alert("先に記事テーマを入力してください！");
-      return;
-    }
-    // Simple rule-based recommendation for MVP (Simulating AI judgment)
-    const isBusiness = topic.includes("仕事") || topic.includes("効率") || topic.includes("ビジネス");
-    const isTech = topic.includes("AI") || topic.includes("ツール") || topic.includes("プログラミング");
-
-    setTargetAudience(isBusiness ? "若手ビジネスパーソン" : isTech ? "新しいもの好きな個人" : "初心者全般");
-    setGoal(isBusiness ? "信頼獲得と問い合わせ誘導" : "SNSでの拡散と保存");
-    setTone(isBusiness ? "論理的" : "やさしい");
-    setTargetLength(5000); // Note optimal length
-
-    alert("AIがこのテーマに最適な設定（ターゲット・目標・トーン）を提案・入力しました！");
+    setTargetAudience("20代の若手社員");
+    setGoal("信頼獲得、LINE登録");
+    setTargetLength(5000);
+    setTone("やさしい");
+    setDifferentiation("競合にはない独自の視点や体験談");
   };
 
   const handleSubmit = () => {
     if (!topic) return;
-    onSubmit({ topic, targetAudience, goal, targetLength, tone, differentiation });
+    onSubmit({ topic, targetAudience, goal, targetLength, tone, differentiation, visualStyle, character });
   };
 
   if (isGenerating) return null;
@@ -224,6 +216,39 @@ function InputForm({
             <option value="専門家">専門家・信頼感</option>
             <option value="エモーショナル">エモーショナル・熱量</option>
             <option value="論理的">論理的・クール</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">画像の画風</label>
+          <select
+            value={visualStyle}
+            onChange={(e) => setVisualStyle(e.target.value)}
+            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
+          >
+            <option value="写真リアル">実写（フォトリアル）</option>
+            <option value="アニメ塗り">アニメ・イラスト調</option>
+            <option value="水彩画">水彩画・淡いタッチ</option>
+            <option value="3Dレンダリング">3D CG・モダン</option>
+            <option value="ドット絵">ドット絵・レトロ</option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">登場キャラクター</label>
+          <select
+            value={character}
+            onChange={(e) => setCharacter(e.target.value)}
+            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
+          >
+            <option value="指定なし">指定なし（風景・抽象のみ）</option>
+            <option value="日本人女性">日本人女性（20代・ビジネス）</option>
+            <option value="日本人女性_カジュアル">日本人女性（カジュアル）</option>
+            <option value="外国人女性">外国人女性（モデル風）</option>
+            <option value="男性ビジネス">男性（ビジネス）</option>
+            <option value="猫">猫（かわいらしく）</option>
+            <option value="ロボット">未来的なロボット</option>
           </select>
         </div>
       </div>
@@ -342,13 +367,13 @@ export default function Home() {
   const [showHelp, setShowHelp] = useState(false);
   const [status, setStatus] = useState<AppStatus>("idle");
   const [logs, setLogs] = useState<string[]>([]);
-  // ... (existing states)
   const [inputs, setInputs] = useState<any>(null);
   const [articleText, setArticleText] = useState("");
   const [score, setScore] = useState<ArticleScore | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [imagePrompt, setImagePrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "score">("result");
+  const [displayTitle, setDisplayTitle] = useState(""); // State for title overlay
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -368,6 +393,7 @@ export default function Home() {
     setScore(null);
     setGeneratedImage(null);
     setImagePrompt("");
+    setDisplayTitle(""); // Reset title
 
     const run = async () => {
       setLogs(["ノウハウを整理しています..."]);
@@ -402,6 +428,11 @@ export default function Home() {
           }
         }
 
+        // Extract title for display: Search for first H1 (# ) or use topic
+        const titleMatch = fullText.match(/^#\s+(.+)$/m);
+        const extractedTitle = titleMatch ? titleMatch[1].trim() : data.topic;
+        setDisplayTitle(extractedTitle);
+
         // --- Added Phase: Refinement ---
         await addLog("文章を整えています（推敲中）...", 1500);
         // (Internal refinement logic would go here if API supported it, simplified as log for now to match UX request)
@@ -421,6 +452,8 @@ export default function Home() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               articleText: fullText,
+              visualStyle: data.visualStyle, // Pass visual style
+              character: data.character      // Pass character setting
             }),
           });
 
@@ -490,7 +523,6 @@ export default function Home() {
 
       {status === "done" && (
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
-          {/* ... (Tabs and Image Result as before) ... */}
           <div className="flex gap-4 mb-6">
             <button
               onClick={() => setActiveTab("result")}
@@ -509,12 +541,22 @@ export default function Home() {
           {activeTab === "result" && (
             <div className="space-y-6">
               {generatedImage && (
-                <div className="glass-card p-2 rounded-[24px]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={generatedImage} alt="Generated Header" className="w-full rounded-[20px] aspect-video object-cover" />
+                <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group">
+                  <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
+
+                    {/* Title Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end items-center pb-8 px-6 text-center">
+                      <h1 className="text-xl md:text-2xl font-bold text-white drop-shadow-md leading-relaxed tracking-wide" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.9)" }}>
+                        {displayTitle}
+                      </h1>
+                    </div>
+                  </div>
+
                   <div className="p-4">
                     <p className="text-xs text-white/50 font-mono mb-2">IMAGE MODEL: {generatedImage.includes("pollinations") ? "FLUX (POLLINATIONS)" : "GEMINI-3-PRO-IMAGE-PREVIEW"}</p>
-                    <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline">画像をダウンロード</a>
+                    <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline">画像をダウンロード（※タイトル合成未対応）</a>
                   </div>
                 </div>
               )}
