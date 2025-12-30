@@ -105,6 +105,31 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // 3. Final Fallback: Pollinations AI (If all Google models failed)
+        if (errors.length === modelsToTry.length) {
+            try {
+                console.log("All Google models failed. Trying Pollinations AI as final fallback.");
+                const encodedPrompt = encodeURIComponent(imagePrompt);
+                // Pollinations returns the image directly, so we just construct the URL
+                const pollinationUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=flux&seed=${Math.floor(Math.random() * 1000)}`;
+
+                // Verify if it works (optional, but good for validation)
+                const checkRes = await fetch(pollinationUrl);
+                if (checkRes.ok) {
+                    return NextResponse.json({
+                        imageUrl: pollinationUrl,
+                        generatedPrompt: imagePrompt,
+                        model: "pollinations-ai-flux"
+                    });
+                } else {
+                    errors.push(`pollinations: ${checkRes.status} - ${await checkRes.text()}`);
+                }
+            } catch (e) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                errors.push(`pollinations: Exception - ${(e as any).message}`);
+            }
+        }
+
         // If all failed
         // List available models for debug
         const listModelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
