@@ -448,6 +448,11 @@ export default function Home() {
             const errData = await imgRes.json().catch(() => ({ error: "Unknown Image Error" }));
             console.error("Image generation failed:", errData);
             await addLog(`画像生成エラー: ${errData.error}`, 3000);
+
+            // Still set the prompt if available in error response
+            if (errData.generatedPrompt) {
+              setImagePrompt(errData.generatedPrompt);
+            }
           } else {
             const imgData = await imgRes.json();
             if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);

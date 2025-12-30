@@ -85,6 +85,23 @@ export async function POST(req: NextRequest) {
         if (!response.ok) {
             const txt = await response.text();
             errors.push(`${usedModel}: ${response.status} - ${txt}`);
+            console.warn(`${usedModel} failed, trying fallback to gemini-2.0-flash`);
+
+            // Priority 2.5: Gemini 2.0 Flash (Standard)
+            usedModel = "gemini-2.0-flash";
+            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: imagePrompt }] }],
+                    generationConfig: { responseMimeType: "image/jpeg" }
+                })
+            });
+        }
+
+        if (!response.ok) {
+            const txt = await response.text();
+            errors.push(`${usedModel}: ${response.status} - ${txt}`);
             console.warn(`${usedModel} failed, trying fallback to imagen-3.0-generate-001`);
 
             // Priority 3: Imagen 3.0
@@ -108,7 +125,12 @@ export async function POST(req: NextRequest) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const available = listData.models?.map((m: any) => m.name) || [];
 
-            throw new Error(`All image models failed. Errors: ${JSON.stringify(errors)}. Available keys: ${JSON.stringify(available)}`);
+            // Return error but INCLUDE the generated prompt so the user can see it
+            return NextResponse.json({
+                error: `All image models failed. Errors: ${JSON.stringify(errors)}`,
+                debugAvailable: available,
+                generatedPrompt: imagePrompt
+            }, { status: 500 });
         }
 
         const data = await response.json();
