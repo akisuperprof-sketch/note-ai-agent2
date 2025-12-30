@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Copy, RefreshCw, Sparkles, Settings2, FileText,
-  ArrowRight, Check, KeyRound, AlertCircle, X, Image as ImageIcon,
+  ArrowRight, Check, AlertCircle, Image as ImageIcon,
   Download
 } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { motion, AnimatePresence } from "framer-motion";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
@@ -19,214 +18,6 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 type ToneType = "standard" | "business" | "emotional" | "casual";
 type LengthType = "auto" | "short" | "medium" | "long";
 
-interface GenerateParams {
-  apiKey: string;
-  sourceText: string;
-  tone: ToneType;
-  length: LengthType;
-  customInstructions?: string;
-  onStream: (chunk: string) => void;
-}
-
-// --- Gemini Logic ---
-
-// Note-specific prompt engineering
-const SYSTEM_INSTRUCTION = `
-あなたは日本で最も支持されている「note」の人気クリエイターであり、優秀な編集者です。
-読了率が高く、スキ（いいね）が集まる、共感性の高い記事を執筆することが得意です。
-
-【執筆のルール】
-1. **タイトル**: 32文字以内で、クリックしたくなる魅力的で具体的なタイトルを考えてください（出力の先頭に # タイトル として記載）。
-2. **構成**:
-   - **導入**: 読者の課題に寄り添い、この記事を読むメリットを提示する。
-   - **本文**: 具体的で分かりやすいエピソードや事例を交える。見出し（##, ###）を活用してリズムを作る。
-   - **まとめ**: 行動を促すようなポジティブな締めくくり。
-3. **表現**:
-   - 漢字・ひらがな・カタカナのバランスを意識（ひらがな多めがnoteらしい）。
-   - 難しい専門用語は噛み砕く。
-   - 適度に絵文字😊や感嘆符！を使って感情を表現する（トーンによる）。
-   - 重要箇所は **太字** で強調する。
-4. **CTA**: 最後には必ず「この記事が良かったら『スキ』やフォローをお願いします！」という呼びかけを入れる。
-`;
-
-async function streamGeminiContent({
-  apiKey, sourceText, tone, length, customInstructions, onStream
-}: GenerateParams) {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    systemInstruction: SYSTEM_INSTRUCTION
-  });
-
-  let lengthPrompt = "";
-  switch (length) {
-    case "short": lengthPrompt = "800〜1200文字程度（サクッと読める分量）"; break;
-    case "medium": lengthPrompt = "1500〜2500文字程度（充実した内容）"; break;
-    case "long": lengthPrompt = "3000文字以上（網羅的な長編）"; break;
-    case "auto": default: lengthPrompt = "内容に合わせて最適な長さ"; break;
-  }
-
-  let tonePrompt = "";
-  switch (tone) {
-    case "business": tonePrompt = "文体: プロフェッショナルで信頼感のある『です・ます』調。論理的で明確な表現。ビジネスパーソン向け。"; break;
-    case "emotional": tonePrompt = "文体: エッセイのような、筆者の体温が伝わるエモーショナルな文体。独り言や問いかけを交える。"; break;
-    case "casual": tonePrompt = "文体: 友人に話しかけるようなフランクな口調。絵文字多めで、改行も多めに。"; break;
-    case "standard": default: tonePrompt = "文体: 読みやすく丁寧な標準的な『です・ます』調。noteの標準的なスタイル。"; break;
-  }
-
-  const prompt = `
-    以下の【メモ・元ネタ】をベースに、最高のnote記事を書き上げてください。
-
-    【設定】
-    ${tonePrompt}
-    目標文字数: ${lengthPrompt}
-    ${customInstructions ? `追加指示: ${customInstructions}` : ""}
-
-    【メモ・元ネタ】
-    ${sourceText}
-  `;
-
-  try {
-    const result = await model.generateContentStream(prompt);
-
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      onStream(chunkText);
-    }
-  } catch (error) {
-    console.error("Gemini Generation Error:", error);
-    throw error;
-  }
-}
-
-// Function to generate image prompt based on text
-async function generateImagePrompt(apiKey: string, articleText: string): Promise<string> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-  const prompt = `
-    以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
-    
-    【要件】
-    - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
-    - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
-    - "No text" (文字を含まない) という指示を必ず含めてください。
-    - 具体的すぎる描写よりも、記事のテーマや感情を表現する抽象的な概念ビジュアルが良いです。
-
-    【記事の抜粋】
-    ${articleText.substring(0, 1000)}...
-  `;
-
-  const result = await model.generateContent(prompt);
-  return result.response.text();
-}
-
-async function generateImage(apiKey: string, imagePrompt: string): Promise<string> {
-  try {
-    // User specifically requested 'gemini-3-pro-image-preview'.
-    // We attempt to call using the REST API pattern for standard GenAI tools if SDK doesn't support it directly.
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: imagePrompt }] }]
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Image model request failed: ${response.statusText} (${response.status})`);
-    }
-
-    const data = await response.json();
-
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
-      const part = data.candidates[0].content.parts[0];
-      // Check for inline data (base64)
-      if (part.inline_data) {
-        return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-      }
-      // Sometimes it might return a URI or different format depending on the beta model
-      if (part.text && part.text.startsWith("http")) {
-        return part.text;
-      }
-    }
-
-    throw new Error("Image data not found in response. Response might not contain an image.");
-
-  } catch (e) {
-    console.warn("Image generation failed", e);
-    throw e;
-  }
-}
-
-
-// --- Components ---
-
-function ApiKeyModal({ isOpen, onClose, onSave, currentKey }: { isOpen: boolean, onClose: () => void, onSave: (key: string) => void, currentKey: string }) {
-  const [key, setKey] = useState(currentKey);
-
-  useEffect(() => setKey(currentKey), [currentKey]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden"
-      >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-              <KeyRound className="text-note-brand" size={20} />
-              APIキー設定
-            </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X size={20} />
-            </button>
-          </div>
-
-          <p className="text-sm text-gray-500 mb-4">
-            Google Gemini APIキーを入力してください。<br />
-            画像生成など高度な機能を利用するためには、適切な権限を持つAPIキーが必要です。
-            <br />
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-note-brand underline hover:text-green-600">
-              APIキーを取得する
-            </a>
-          </p>
-
-          <input
-            type="password"
-            placeholder="AIxa..."
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-note-brand focus:border-transparent outline-none mb-4"
-          />
-
-          <div className="flex gap-3 justify-end">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg font-medium"
-            >
-              キャンセル
-            </button>
-            <button
-              onClick={() => { onSave(key); onClose(); }}
-              className="px-4 py-2 text-sm bg-note-brand text-white rounded-lg font-bold hover:opacity-90 transition-opacity"
-            >
-              保存する
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
 export default function Home() {
   const [inputText, setInputText] = useState("");
   const [tone, setTone] = useState<ToneType>("standard");
@@ -236,24 +27,10 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputText, setOutputText] = useState("");
 
-  const [apiKey, setApiKey] = useState("");
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-
-  // Load API key from local storage
-  useEffect(() => {
-    const savedKey = localStorage.getItem("gemini_api_key");
-    if (savedKey) setApiKey(savedKey);
-  }, []);
-
-  const handleSaveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem("gemini_api_key", key);
-    showNotification("APIキーを保存しました", "success");
-  };
 
   const showNotification = (message: string, type: 'success' | 'error') => {
     setShowToast({ message, type });
@@ -261,10 +38,6 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
-    if (!apiKey) {
-      setShowApiKeyModal(true);
-      return;
-    }
     if (!inputText.trim()) return;
 
     setIsProcessing(true);
@@ -272,39 +45,69 @@ export default function Home() {
     setGeneratedImage(null); // Reset image
 
     try {
-      await streamGeminiContent({
-        apiKey,
-        sourceText: inputText,
-        tone,
-        length,
-        customInstructions,
-        onStream: (chunk) => setOutputText(prev => prev + chunk)
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceText: inputText,
+          tone,
+          length,
+          customInstructions,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error("Generation failed");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No readable stream");
+
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        setOutputText((prev) => prev + chunk);
+      }
+
       showNotification("記事の生成が完了しました！次は画像を生成できます。", "success");
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const err = error as any;
-      showNotification("生成エラー: " + (err.message || "不明なエラー"), "error");
+      console.error(err);
+      showNotification("生成エラー: " + (err.message || "サーバーエラーが発生しました"), "error");
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleGenerateImage = async () => {
-    if (!apiKey || !outputText) return;
+    if (!outputText) return;
 
     setIsGeneratingImage(true);
     try {
-      // 1. Generate Prompt
-      const imagePrompt = await generateImagePrompt(apiKey, outputText);
-      console.log("Generated Image Prompt:", imagePrompt);
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          articleText: outputText,
+        }),
+      });
 
-      // 2. Generate Image
-      // User requested "use gemini-3-pro-image-preview", so we try.
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Image generation failed");
+      }
 
-      const imageUrl = await generateImage(apiKey, imagePrompt);
-      setGeneratedImage(imageUrl);
-      showNotification("ヘッダー画像を生成しました！", "success");
+      const data = await response.json();
+      if (data.imageUrl) {
+        setGeneratedImage(data.imageUrl);
+        showNotification("ヘッダー画像を生成しました！", "success");
+      } else {
+        throw new Error("No image URL received");
+      }
 
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -324,13 +127,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#F9F9F9] text-[#333] font-sans">
-      <ApiKeyModal
-        isOpen={showApiKeyModal}
-        onClose={() => setShowApiKeyModal(false)}
-        onSave={handleSaveApiKey}
-        currentKey={apiKey}
-      />
-
       {/* Toast Notification */}
       <AnimatePresence>
         {showToast && (
@@ -358,14 +154,6 @@ export default function Home() {
           <h1 className="text-xl font-bold tracking-tight text-gray-800">note ai agent 2</h1>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowApiKeyModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-          >
-            <KeyRound size={14} />
-            {apiKey ? "APIキー設定済み" : "APIキー未設定"}
-          </button>
-          <div className="h-6 w-px bg-gray-200"></div>
           <button className="px-4 py-2 bg-black text-white text-sm font-bold rounded-full hover:bg-gray-800 transition-colors">
             エクスポート
           </button>
@@ -511,12 +299,6 @@ export default function Home() {
                       </>
                     )}
                   </button>
-
-                  {!apiKey && (
-                    <p className="text-xs text-red-500 text-center mt-2">
-                      ※APIキーの設定が必要です
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
