@@ -13,39 +13,42 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { articleText, promptOverride, visualStyle, character } = await req.json();
+        const { articleText, promptOverride, visualStyle, character, referenceImage } = await req.json();
 
         let imagePrompt = promptOverride;
 
         if (!imagePrompt) {
             try {
-                // 1. Generate Image Prompt (Fallback)
-                // Use gemini-2.0-flash-exp as it is more stable than 3-preview for pure text sometimes, 
-                // or stick to gemini-3-flash-preview but handle error.
+                // 1. Generate Image Prompt
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 const promptEngineering = `
-            You are an expert AI art director. Create a detailed English image generation prompt for a blog header image based on the article content and user preferences below.
+            You are a Professional Visual Designer specialized in note.com (Japanese blogging platform) thumbnails.
+            Your goal is to create a prompt for an eye-catching header image that captures a viewer's attention in 3 seconds.
+
+            【Core Visual DNA (Derived from Expert References)】
+            - Subject: Clear, high-quality, expressive.
+            - Background: Simple yet atmospheric, with good contrast to the subject.
+            - Lighting: Rim lighting to separate subject from background, soft cinematic shadows.
+            - Composition: Central or Rule of Thirds focus, leaving negative space for titles (titles will be added later by the system).
 
             【User Preferences】
-            - Visual Style: ${visualStyle || "Modern Flat Design"}
-            - Character: ${character || "None (Abstract/Scenery only)"}
+            - Target Style: ${visualStyle || "Anime/Illustration"}
+            - Main Subject: ${character || "Context-dependent"}
+            ${referenceImage ? "- Reference Analysis: Use a similar art style and character placement to the uploaded image." : ""}
 
-            【Best Practice Style Modifiers】
-            If Style is "Anime/Illustration": "anime style, cel shaded, vibrant colors, makoto shinkai style, lo-fi hip hop aesthetic, highly detailed background, atmospheric lighting, 8k resolution"
-            If Style is "Photorealistic": "cinematic shot, 8k, photorealistic, depth of field, soft natural lighting, shot on 35mm lens, high quality"
-            If Style is "Watercolour": "watercolor painting, soft brush strokes, pastel colors, artistic, dreamy atmosphere, paper texture"
-            If "Character" is specified: Description should focus on the character in a relevant setting (e.g., if "Japanese Woman", describe "Japanese woman in her 20s, business casual, smiling, natural pose").
+            【Style Logic】
+            - If "Anime/Illustration": "clean anime line art, sharp focus, professional digital illustration, vibrant yet sophisticated colors, high-quality cel shading. Avoid messy textures."
+            - If "Photorealistic": "high-end commercial photography, soft bokeh, clean composition, professional lighting."
 
-            【Article Excerpt】
-            ${articleText.substring(0, 800)}...
+            【Article Context】
+            ${articleText.substring(0, 1000)}
 
             【Output Requirement】
-            - Return ONLY the English prompt.
-            - Start with the core subject (Character or Scene).
-            - Append the Style Modifiers.
-            - ALWAYS end with: ", no text, textless, high quality, 16:9 aspect ratio".
+            - Output ONLY the raw English prompt string. No conversational text.
+            - Subject first, then environment, then specific style/lighting keywords.
+            - Format: [Main Subject] in [Specific Setting], [Action/Pose], [Specific Art Style Keywords], [Lighting/Atmosphere Keywords], high resolution, extremely detailed, masterwork, 16:9 aspect ratio, textless, no logo.
           `;
 
                 const promptResult = await model.generateContent(promptEngineering);
