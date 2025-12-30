@@ -343,6 +343,7 @@ export default function Home() {
     // Fake phases UI log
     const run = async () => {
       setLogs(["ノウハウを整理しています..."]);
+      setStatus("writing"); // Start showing "Now Generating" immediately
 
       try {
         const response = await fetch("/api/generate", {
