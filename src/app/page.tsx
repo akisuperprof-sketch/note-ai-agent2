@@ -332,7 +332,6 @@ function InputForm({
   );
 }
 
-// ... (ProgressLog, ScoreMeter, ScoreBars remain similar, updating logs)
 
 function ProgressLog({ logs }: { logs: string[] }) {
   return (
@@ -544,7 +543,7 @@ export default function Home() {
     run();
   };
 
-  // ... (copyToClipboard)
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(articleText);
     alert("コピーしました");
