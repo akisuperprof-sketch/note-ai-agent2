@@ -1,12 +1,124 @@
-// ... (imports remain)
+"use client";
+
+import { useState, useRef, useEffect } from "react";
 import {
   Play, Check, Copy, AlertCircle, X, ChevronRight, HelpCircle,
   RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb
 } from "lucide-react";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { calculateArticleScore, ArticleScore } from "@/lib/score";
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-// ... (Header, HelpModal, StepCards, ScoreMeter, ScoreBars remain same or slightly updated)
+function cn(...inputs: (string | undefined | null | false)[]) {
+  return twMerge(clsx(inputs));
+}
 
-// --- New Feature: AI Recommendation Button ---
+// --- Types ---
+type AppStatus = "idle" | "outline" | "writing" | "polish" | "scoring" | "image_prompt" | "done" | "error" | "canceled";
+
+// --- Components ---
+
+function Header() {
+  return (
+    <header className="fixed top-0 left-0 right-0 h-16 border-b border-[rgba(255,255,255,0.08)] bg-[#0B0F1A]/80 backdrop-blur-md z-50 flex items-center justify-between px-6">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center text-white font-bold shadow-lg shadow-purple-500/20">
+          <Sparkles size={18} />
+        </div>
+        <h1 className="text-lg font-bold text-white tracking-wide">
+          わど式
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400 ml-1">AI Agent</span>
+        </h1>
+      </div>
+      <div className="text-xs text-white/50 font-mono">v2.0 REPRO</div>
+    </header>
+  );
+}
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  const [doNotShow, setDoNotShow] = useState(false);
+
+  const handleStart = () => {
+    if (doNotShow) {
+      localStorage.setItem("hideHelp", "true");
+    }
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="glass-card w-full max-w-md rounded-[24px] p-6 text-white shadow-2xl">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">このツールの使い方</h2>
+          <button onClick={onClose}><X size={24} className="text-white/50" /></button>
+        </div>
+
+        <div className="space-y-4 mb-8">
+          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold shrink-0">1</div>
+            <div>
+              <h3 className="font-bold mb-1">ノウハウを入力</h3>
+              <p className="text-sm text-gray-400">箇条書きのメモや書きたいテーマを入力します。</p>
+            </div>
+          </div>
+          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold shrink-0">2</div>
+            <div>
+              <h3 className="font-bold mb-1">AIが記事生成</h3>
+              <p className="text-sm text-gray-400">構成・執筆・編集・画像プロンプト作成を全自動で行います。</p>
+            </div>
+          </div>
+          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold shrink-0">3</div>
+            <div>
+              <h3 className="font-bold mb-1">コピーして完了</h3>
+              <p className="text-sm text-gray-400">品質スコアを確認し、noteに貼り付けて投稿完了です。</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mb-6 cursor-pointer" onClick={() => setDoNotShow(!doNotShow)}>
+          <div className={cn("w-5 h-5 rounded border border-white/30 flex items-center justify-center transition-colors", doNotShow && "bg-purple-500 border-purple-500")}>
+            {doNotShow && <Check size={14} />}
+          </div>
+          <span className="text-sm text-gray-400">次回から表示しない</span>
+        </div>
+
+        <button
+          onClick={handleStart}
+          className="w-full py-4 rounded-[28px] bg-gradient-primary font-bold text-lg hover:shadow-lg hover:shadow-purple-500/25 transition-all text-white"
+        >
+          はじめる
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StepCards({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      {[
+        { num: 1, title: "ノウハウ整理", desc: "メモを入力" },
+        { num: 2, title: "自動生成", desc: "AIが執筆" },
+        { num: 3, title: "コピー投稿", desc: "noteへ貼付" }
+      ].map((step) => (
+        <div key={step.num} onClick={onStart} className="glass-card p-6 rounded-[24px] cursor-pointer hover:bg-white/10 transition-colors group">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-4xl font-bold text-white/5 group-hover:text-white/10 transition-colors">0{step.num}</span>
+            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+              <ChevronRight size={16} className="text-white/30 group-hover:text-purple-400" />
+            </div>
+          </div>
+          <h3 className="text-lg font-bold mb-1">{step.title}</h3>
+          <p className="text-sm text-gray-400">{step.desc}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function InputForm({
   onSubmit, isGenerating
 }: {
