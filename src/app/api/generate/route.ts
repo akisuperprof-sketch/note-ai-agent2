@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // Note-specific prompt engineering (Same as before)
 const SYSTEM_INSTRUCTION = `
 あなたは日本で最も支持されている「note」の人気クリエイターであり、優秀な編集者です。
