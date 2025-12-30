@@ -13,6 +13,17 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        console.log("API Key found (length):", apiKey.length); // Debug log
+
+        let body;
+        try {
+            body = await req.json();
+            console.log("Request Body parsed:", JSON.stringify(body).slice(0, 100)); // Debug log (truncated)
+        } catch (e) {
+            console.error("Failed to parse request body:", e);
+            return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
         const {
             topic,
             targetAudience,
@@ -20,7 +31,7 @@ export async function POST(req: NextRequest) {
             targetLength = 5000,
             tone = "やさしい",
             differentiation
-        } = await req.json();
+        } = body;
 
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
