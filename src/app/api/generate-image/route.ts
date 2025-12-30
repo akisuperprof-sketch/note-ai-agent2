@@ -13,32 +13,33 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { articleText, promptOverride, visualStyle, character, referenceImage } = await req.json();
+        const { title, articleText, promptOverride, visualStyle, character, referenceImage } = await req.json();
 
         let imagePrompt = promptOverride;
 
         if (!imagePrompt) {
             try {
-                // 1. Generate a CONCISE Visual Scene Description first (to avoid passing raw text to image model)
+                // 1. Generate a CONCISE Visual Scene Description based ONLY on the Title (to keep it clean and symbolic)
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 const promptEngineering = `
-            You are a Visual Art Director. Based on the article context below, describe ONE singular, powerful visual scene (without text) that works as a blog header.
+            You are a Visual Art Director. Based on the Article Title below, describe ONE singular, powerful visual scene (WITHOUT any text/letters) that works as a blog header.
             
+            【Article Title】
+            ${title || articleText.substring(0, 100)}
+
             【Target Vibe】
             - Visual Style: ${visualStyle || "Anime/Illustration"}
             - Main Subject: ${character || "Context-dependent"}
-            ${referenceImage ? "- Style Guide: Match the art style and character characteristics of the provided image." : ""}
-            - Thumbail Goal: Clear focal point, high-contrast, captures attention in 3 seconds.
-
-            【Article Context】
-            ${articleText.substring(0, 1500)}
+            ${referenceImage ? "- Style Guide: Match the art style and characteristics of the provided image." : ""}
+            - Thumbnail Goal: Clear focal point, high-contrast, captures attention in 3 seconds.
 
             【Instructions for Output】
-            - STRICTLY NO TEXT in the image. Output only physical visual descriptions.
+            - STRICTLY NO TEXT, NO LETTERS, NO WORDS in the image.
+            - Focus on a symbolic visual metaphor for the title.
             - Describe lighting, color, composition (e.g., Rim lighting, vibrant colors, central focus).
-            - Max 50 words.
+            - Max 40 words.
             - Return ONLY the English prompt string.
           `;
 

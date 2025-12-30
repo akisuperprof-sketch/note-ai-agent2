@@ -512,6 +512,7 @@ export default function Home() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              title: extractedTitle, // Pass the extracted title
               articleText: fullText,
               visualStyle: data.visualStyle, // Pass visual style
               character: data.character      // Pass character setting
