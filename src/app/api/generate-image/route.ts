@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { articleText, promptOverride } = await req.json();
+        const { articleText, promptOverride, visualStyle, character } = await req.json();
 
         let imagePrompt = promptOverride;
 
@@ -28,10 +28,16 @@ export async function POST(req: NextRequest) {
                 const promptEngineering = `
             以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
             
+            【ユーザー指定パラメータ】
+            - 画風 (Visual Style): ${visualStyle || "指定なし (フラットデザイン、ミニマル、モダン)"}
+            - キャラクター (Character): ${character || "指定なし"}
+
             【要件】
             - 出力は **英語のプロンプトのみ** を返してください。余計な説明は不要です。
-            - スタイル: フラットデザイン、ミニマル、モダン、抽象的、コーポレートメンフィス、パステルカラー、温かみのある雰囲気。
-            - "No text" (文字を含まない) という指示を必ず含めてください。
+            - 画風の指示が「写真リアル」なら "photorealistic, 8k, highly detailed, cinematic lighting" を含めてください。
+            - 画風の指示が「アニメ塗り」なら "anime style, cel shaded, vibrant colors, makoto shinkai style" を含めてください。
+            - キャラクターの指定がある場合（例: 日本人女性）、それをメインの被写体として詳細に描写してください（例: "Japanese woman in her 20s, business casual attire, smiling, working on laptop"など）。
+            - 文字 (Text) は **絶対に含めないでください** ("No text", "textless")。
             
             【記事の抜粋】
             ${articleText.substring(0, 800)}...
