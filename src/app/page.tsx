@@ -368,6 +368,7 @@ export default function Home() {
             if (done) break;
             const chunk = decoder.decode(value, { stream: true });
             fullText += chunk;
+            // Use functional update to avoid stale closure issues if needed, but here simple set is fine for streaming usually
             setArticleText(prev => prev + chunk);
           }
         }
