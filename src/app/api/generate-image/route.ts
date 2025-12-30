@@ -54,101 +54,70 @@ export async function POST(req: NextRequest) {
         const errors: string[] = [];
 
         // 2. Call Image Generation Model
-        // Priority 1: Gemini 3 Pro Image Preview
-        let usedModel = "gemini-3-pro-image-preview";
-        let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: imagePrompt }] }],
-                // generationConfig removed to fix INVALID_ARGUMENT
-            })
-        });
+        const modelsToTry = [
+            "gemini-3-pro-image-preview",
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash",
+            "imagen-3.0-generate-001"
+        ];
 
-        if (!response.ok) {
-            const txt = await response.text();
-            errors.push(`${usedModel}: ${response.status} - ${txt}`);
-            console.warn(`${usedModel} failed, trying fallback to gemini-2.0-flash-exp`);
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Trying image generation with model: ${modelName}`);
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: imagePrompt }] }]
+                        // generationConfig removed to avoid INVALID_ARGUMENT
+                    })
+                });
 
-            // Priority 2: Gemini 2.0 Flash Exp
-            usedModel = "gemini-2.0-flash-exp";
-            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: imagePrompt }] }],
-                    // generationConfig removed
-                })
-            });
-        }
+                if (!response.ok) {
+                    const txt = await response.text();
+                    errors.push(`${modelName}: ${response.status} - ${txt}`);
+                    console.warn(`${modelName} failed with status ${response.status}`);
+                    continue; // Try next model
+                }
 
-        if (!response.ok) {
-            const txt = await response.text();
-            errors.push(`${usedModel}: ${response.status} - ${txt}`);
-            console.warn(`${usedModel} failed, trying fallback to gemini-2.0-flash`);
+                const data = await response.json();
 
-            // Priority 2.5: Gemini 2.0 Flash (Standard)
-            usedModel = "gemini-2.0-flash";
-            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: imagePrompt }] }],
-                    // generationConfig removed
-                })
-            });
-        }
+                // Validate Data
+                if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
+                    const part = data.candidates[0].content.parts[0];
+                    if (part.inline_data) {
+                        const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
+                        return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: modelName });
+                    }
+                    if (part.text && part.text.startsWith("http")) {
+                        return NextResponse.json({ imageUrl: part.text, generatedPrompt: imagePrompt, model: modelName });
+                    }
+                }
 
-        if (!response.ok) {
-            const txt = await response.text();
-            errors.push(`${usedModel}: ${response.status} - ${txt}`);
-            console.warn(`${usedModel} failed, trying fallback to imagen-3.0-generate-001`);
+                // If we get here, response was OK but data was missing/invalid
+                errors.push(`${modelName}: 200 OK but no image data found.`);
+                console.warn(`${modelName} returned 200 but no valid image data.`);
 
-            // Priority 3: Imagen 3.0
-            usedModel = "imagen-3.0-generate-001";
-            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: imagePrompt }] }],
-                    // generationConfig removed
-                })
-            });
-        }
-
-        if (!response.ok) {
-            const txt = await response.text();
-            errors.push(`${usedModel}: ${response.status} - ${txt}`);
-            // If completely failed, list available models for debug
-            const listModelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-            const listData = await listModelsRes.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const available = listData.models?.map((m: any) => m.name) || [];
-
-            // Return error but INCLUDE the generated prompt so the user can see it
-            return NextResponse.json({
-                error: `All image models failed. Errors: ${JSON.stringify(errors)}`,
-                debugAvailable: available,
-                generatedPrompt: imagePrompt
-            }, { status: 500 });
-        }
-
-        const data = await response.json();
-
-        if (data.candidates && data.candidates[0]?.content?.parts?.[0]) {
-            const part = data.candidates[0].content.parts[0];
-            // Check for inline data (base64)
-            if (part.inline_data) {
-                const imageUrl = `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-                return NextResponse.json({ imageUrl, generatedPrompt: imagePrompt, model: usedModel });
-            }
-            // Check for text url
-            if (part.text && part.text.startsWith("http")) {
-                return NextResponse.json({ imageUrl: part.text, generatedPrompt: imagePrompt, model: usedModel });
+            } catch (e) {
+                console.error(`Error trying ${modelName}:`, e);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                errors.push(`${modelName}: Exception - ${(e as any).message}`);
             }
         }
 
-        throw new Error(`No image data found in response from ${usedModel}`);
+        // If all failed
+        // List available models for debug
+        const listModelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        const listData = await listModelsRes.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const available = listData.models?.map((m: any) => m.name) || [];
+
+        // Return error but INCLUDE the generated prompt so the user can see it
+        return NextResponse.json({
+            error: `All image models failed. Errors: ${JSON.stringify(errors)}`,
+            debugAvailable: available,
+            generatedPrompt: imagePrompt
+        }, { status: 500 });
 
 
     } catch (error) {
