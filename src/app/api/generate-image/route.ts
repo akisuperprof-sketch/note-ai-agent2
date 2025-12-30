@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
         if (!imagePrompt) {
             // 1. Generate Image Prompt (Fallback)
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
             const promptEngineering = `
         以下の記事の内容を象徴する、noteの見出し画像（ヘッダー画像）のための英語の画像生成プロンプトを作成してください。
@@ -42,19 +42,25 @@ export async function POST(req: NextRequest) {
             console.log("Using Provided Image Prompt:", imagePrompt);
         }
 
-        // 2. Call Image Generation Model (Gemini-3-Pro-Image-Preview via REST)
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`, {
+        // 2. Call Image Generation Model
+        // Using gemini-2.0-flash-exp which often supports Image Generation in the latest API
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: imagePrompt }] }]
+                contents: [{ parts: [{ text: imagePrompt }] }],
+                generationConfig: {
+                    responseMimeType: "image/jpeg"
+                }
             })
         });
 
         if (!response.ok) {
-            throw new Error(`Image model request failed: ${response.statusText} (${response.status})`);
+            // Debug: try to read error text
+            const errText = await response.text();
+            throw new Error(`Image model request failed: ${response.status} - ${errText}`);
         }
 
         const data = await response.json();
