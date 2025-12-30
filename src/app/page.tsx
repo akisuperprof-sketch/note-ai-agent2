@@ -438,6 +438,8 @@ export default function Home() {
   const [imagePrompt, setImagePrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "score">("result");
   const [displayTitle, setDisplayTitle] = useState(""); // State for title overlay
+  const [textModel, setTextModel] = useState("");
+  const [imageModel, setImageModel] = useState("");
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -458,6 +460,7 @@ export default function Home() {
     setGeneratedImage(null);
     setImagePrompt("");
     setDisplayTitle(""); // Reset title
+    setTextModel("gemini-3-flash-preview"); // Text model name
 
     const run = async () => {
       setLogs(["ノウハウを整理しています..."]);
@@ -530,6 +533,7 @@ export default function Home() {
             const imgData = await imgRes.json();
             if (imgData.imageUrl) setGeneratedImage(imgData.imageUrl);
             if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
+            if (imgData.model) setImageModel(imgData.model);
           }
         } catch (e) { console.error(e); }
 
@@ -656,23 +660,41 @@ export default function Home() {
                 <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group">
                   <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                     <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex flex-col justify-end items-center pb-8 px-6 text-center">
-                      <h1 className="text-xl md:text-2xl font-bold text-white drop-shadow-md leading-relaxed tracking-wide" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.9)" }}>
+                    {/* Note-style Premium Title Overlay */}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-24 pb-6 px-6 text-center">
+                      <div className="inline-block px-3 py-1 bg-white/10 border border-white/20 rounded-full text-[10px] text-white/50 font-bold mb-3 tracking-widest backdrop-blur-md">
+                        FEATURED ARTICLE
+                      </div>
+                      <h1 className="text-xl md:text-2xl font-bold text-white leading-relaxed tracking-tight" style={{
+                        textShadow: "0 2px 10px rgba(0,0,0,1)",
+                        letterSpacing: "-0.01em"
+                      }}>
                         {displayTitle}
                       </h1>
                     </div>
                   </div>
 
-                  <div className="p-4">
-                    <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline">画像をダウンロード（※タイトル合成未対応）</a>
+                  <div className="p-4 flex justify-between items-center bg-black/20">
+                    <a href={generatedImage} download="header.png" className="text-purple-400 text-sm font-bold hover:underline flex items-center gap-2">
+                      画像を保存
+                    </a>
+                    <div className="flex gap-2">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-white/30 uppercase tracking-tighter">AI Model</span>
+                        <span className="text-[10px] text-white/50 font-mono">{imageModel || "Gemini 3 Pro"}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
 
               <div className="glass-card p-6 rounded-[24px]">
                 <div className="flex justify-between items-center mb-4">
-                  <div>
+                  <div className="flex items-center gap-3">
                     <h3 className="font-bold text-white/70">記事本文</h3>
+                    <div className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400 font-mono tracking-tighter">
+                      {textModel}
+                    </div>
                   </div>
                   <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm font-bold hover:bg-purple-500 transition-colors">
                     <Copy size={16} /> コピー
