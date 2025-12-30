@@ -124,10 +124,21 @@ function InputForm({
 }: {
   onSubmit: (data: any) => void, isGenerating: boolean
 }) {
-  const [topic, setTopic] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
-  const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(5000);
+  const [topic, setTopic] = useState(`AI活用最新情報　最新最高の王道
+音声入力はaquavoice
+音声撮り溜めは　voicy
+音声文字起こしデータ含め自分情報の記録は　obsidian
+antigravityでobsidian情報を記事にする
+記事にしたらSNSで拡散
+大切なポイントは、自分の見つめ直しと自分+市場分析
+エッセンスは人間味
+リアルな無料音声を作るなら elevenlabs
+　必要な音声プロンプト作るならgemで感情まで入れ込む
+リアル音声と台本で　sora2でリアル動画
+マニュアル作るなら各AIに搭載のcanvas活用`);
+  const [targetAudience, setTargetAudience] = useState("AI活用に興味があるビジネスパーソン");
+  const [goal, setGoal] = useState("AIツールの具体的な連携フローを知ってもらう");
+  const [targetLength, setTargetLength] = useState(3000);
   const [tone, setTone] = useState("やさしい");
   const [differentiation, setDifferentiation] = useState("");
 
