@@ -731,13 +731,31 @@ function HistoryList({
 
     // Attempt to save with smart cleaning
     try {
+      // Optimize: Remove heavy reference image from history inputs to save space
+      const safeInputs = { ...itemData.inputs };
+      if (safeInputs.referenceImage && safeInputs.referenceImage.length > 500) {
+        safeInputs.referenceImage = null; // Don't save base64 image to history
+      }
+
+      const optimizedNewItem = {
+        ...newItem,
+        inputs: safeInputs
+      };
+
       const current = items;
-      const updated = [newItem, ...current]; // Newest first
+      const updated = [optimizedNewItem, ...current]; // Newest first
       localStorage.setItem("panda_history", JSON.stringify(updated));
       setItems(updated);
     } catch (e: any) {
-      if (e.name === 'QuotaExceededError') {
-        console.warn("Storage quota exceeded. Attempting to free up space...");
+      // Catch ALL errors to prevent crashing the main app flow
+      console.warn("History save warning:", e);
+
+      // Try smart cleaning for any error that looks like quota/storage issue
+      try {
+        // Optimize logic again for retry
+        const safeInputs = { ...itemData.inputs };
+        if (safeInputs.referenceImage) safeInputs.referenceImage = null;
+        const retryItem = { ...newItem, inputs: safeInputs };
 
         let reducedItems = [...items];
         let saved = false;
@@ -746,7 +764,7 @@ function HistoryList({
         while (reducedItems.length > 0 && !saved) {
           reducedItems.pop(); // Remove oldest
           try {
-            const retryUpdated = [newItem, ...reducedItems];
+            const retryUpdated = [retryItem, ...reducedItems];
             localStorage.setItem("panda_history", JSON.stringify(retryUpdated));
             setItems(retryUpdated);
             saved = true;
@@ -759,16 +777,15 @@ function HistoryList({
         if (!saved) {
           // Fallback: Clear all and save only new item
           try {
-            localStorage.setItem("panda_history", JSON.stringify([newItem]));
-            setItems([newItem]);
+            localStorage.setItem("panda_history", JSON.stringify([retryItem]));
+            setItems([retryItem]);
           } catch (finalError) {
             console.error("Critical: Cannot save even a single item.", finalError);
-            alert("ブラウザの保存容量がいっぱいです。履歴を保存できませんでした。");
+            // Do NOT alert aggressively to avoid disturbing user flow too much
           }
         }
-
-      } else {
-        console.error("Failed to save history", e);
+      } catch (cleanupError) {
+        console.error("Cleanup failed", cleanupError);
       }
     }
   };
