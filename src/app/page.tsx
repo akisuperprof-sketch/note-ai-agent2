@@ -907,6 +907,7 @@ export default function Home() {
     setStatus("done");
     setActiveTab("result");
     setShowHistory(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const addLog = async (msg: string, delay: number) => {
@@ -1089,6 +1090,7 @@ export default function Home() {
           hashtags: currentHashtags,
           inputs: data
         });
+        window.scrollTo({ top: 0, behavior: "smooth" });
         await addLog("カンペキです！", 500);
 
       } catch (e) {
