@@ -159,6 +159,7 @@ function InputForm({
   const [character, setCharacter] = useState("note記事つくレッサーパンダ");
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [strictCharacter, setStrictCharacter] = useState(true);
+  const [showEyecatchTitle, setShowEyecatchTitle] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isRecommending, setIsRecommending] = useState(false);
 
@@ -179,6 +180,7 @@ function InputForm({
         setCharacter(d.character || "note記事つくレッサーパンダ");
         setReferenceImage(d.referenceImage || null);
         setStrictCharacter(d.strictCharacter ?? true);
+        setShowEyecatchTitle(d.showEyecatchTitle ?? true);
       } catch (e) { console.error("Failed to load persistence", e); }
     }
   }, []);
@@ -188,10 +190,10 @@ function InputForm({
     const d = {
       topic, targetAudience, goal, targetLength, tone,
       differentiation, outlineSupplement, visualStyle, character,
-      referenceImage, strictCharacter
+      referenceImage, strictCharacter, showEyecatchTitle
     };
     localStorage.setItem("panda_last_inputs", JSON.stringify(d));
-  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, referenceImage, strictCharacter]);
+  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, referenceImage, strictCharacter, showEyecatchTitle]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -241,7 +243,7 @@ function InputForm({
     onSubmit({
       topic, targetAudience, goal, targetLength, tone,
       differentiation, outlineSupplement, visualStyle, character, referenceImage,
-      strictCharacter
+      strictCharacter, showEyecatchTitle
     });
   };
 
@@ -446,6 +448,27 @@ function InputForm({
             <option value="ドット絵">ドット絵・レトロ</option>
           </select>
         </div>
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">アイキャッチの設定</label>
+          <div
+            onClick={() => setShowEyecatchTitle(!showEyecatchTitle)}
+            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-all text-white"
+          >
+            <span className="text-sm font-bold">タイトルを画像に入れる</span>
+            <div className={cn(
+              "w-10 h-5 rounded-full relative transition-colors duration-300",
+              showEyecatchTitle ? "bg-orange-500" : "bg-white/10"
+            )}>
+              <div className={cn(
+                "absolute top-1 w-3 h-3 rounded-full bg-white transition-all duration-300",
+                showEyecatchTitle ? "left-6" : "left-1"
+              )} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">登場キャラクター</label>
           <select
@@ -691,6 +714,8 @@ export default function Home() {
   const [isGeneratingInlines, setIsGeneratingInlines] = useState(false);
   const [metaDescription, setMetaDescription] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
+  const [eyecatchError, setEyecatchError] = useState<string | null>(null);
+  const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -735,6 +760,8 @@ export default function Home() {
     setScore(null);
     setGeneratedImage(null);
     setImagePrompt("");
+    setEyecatchError(null);
+    setInlineErrors([]);
     setDisplayTitle(""); // Reset title
     setTextModel("gemini-3-flash-preview"); // Text model name
 
@@ -829,13 +856,18 @@ export default function Home() {
           if (imgRes.ok && imgData.imageUrl) {
             finalImgUrl = imgData.imageUrl;
             setGeneratedImage(imgData.imageUrl);
+            setEyecatchError(null);
             if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
             if (imgData.model) setImageModel(imgData.model);
           } else {
             const errMsg = imgData.error || "アイキャッチの生成に失敗しました";
+            setEyecatchError(errMsg);
             await addLog(`アイキャッチ生成エラー: ${errMsg}`, 2000);
           }
-        } catch (e) { console.error("Header image failed", e); }
+        } catch (e) {
+          setEyecatchError("通信エラーが発生しました");
+          console.error("Header image failed", e);
+        }
 
         // --- 2. Initial Inline Image (First one) ---
         await addLog("記事内画像を生成中...", 1000);
@@ -850,10 +882,10 @@ export default function Home() {
             body: JSON.stringify({
               title: headingText,
               articleText: "Demonstration of: " + headingText,
-              visualStyle: "Simple Flat Illustration",
+              visualStyle: data.visualStyle,
               character: data.character,
               referenceImage: data.referenceImage,
-              promptOverride: `Simple clean flat anime illustration of ${data.character === '指定なし' ? 'a cozy object' : data.character} showing "${headingText}", educational context, textless background, bright colors.`
+              promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a cozy object' : data.character} representing "${headingText}", clear details, professional composition, textless background.`
             }),
           });
           const imgData = await imgRes.json();
@@ -861,8 +893,13 @@ export default function Home() {
             finalInlineUrl = imgData.imageUrl;
             setInlineImage(imgData.imageUrl);
             setInlineImages([{ heading: headingText, url: imgData.imageUrl }]);
+            setInlineErrors(prev => prev.filter(err => err.heading !== headingText));
+          } else {
+            const errMsg = imgData.error || "記事内画像の生成に失敗しました";
+            setInlineErrors(prev => [...prev, { heading: headingText, error: errMsg }]);
           }
         } catch (e) {
+          setInlineErrors(prev => [...prev, { heading: headingText, error: "通信エラーが発生しました" }]);
           console.error("Inline image failed", e);
         }
 
@@ -900,9 +937,11 @@ export default function Home() {
     if (!confirm(`全${count}箇所の見出しに合わせて、${count}枚の画像を生成します。よろしいですか？\n※生成完了まで少し時間がかかります。`)) return;
 
     setIsGeneratingInlines(true);
-    const results: { heading: string, url: string }[] = [];
+    const results: { heading: string, url: string }[] = [...inlineImages];
 
     for (const heading of headings) {
+      if (results.find(r => r.heading === heading)) continue; // Skip already generated
+
       try {
         const imgRes = await fetch("/api/generate-image", {
           method: "POST",
@@ -910,22 +949,87 @@ export default function Home() {
           body: JSON.stringify({
             title: heading,
             articleText: "Concept: " + heading,
-            visualStyle: "Simple Flat Illustration",
+            visualStyle: inputs.visualStyle,
             character: inputs.character,
             referenceImage: inputs.referenceImage,
-            promptOverride: `Simple clean flat anime illustration of ${inputs.character === '指定なし' ? 'a cozy object' : inputs.character} showing context of "${heading}", textless background, bright minimal colors.`
+            promptOverride: `High quality ${inputs.visualStyle} illustration of ${inputs.character === '指定なし' ? 'a relevant object' : inputs.character} representing the concept of "${heading}", artistic and detailed, textless background.`
           }),
         });
         const imgData = await imgRes.json();
         if (imgRes.ok && imgData.imageUrl) {
           results.push({ heading, url: imgData.imageUrl });
           setInlineImages([...results]); // Update incrementally
+          setInlineErrors(prev => prev.filter(e => e.heading !== heading));
+        } else {
+          const errMsg = imgData.error || "生成失敗";
+          setInlineErrors(prev => [...prev, { heading, error: errMsg }]);
         }
       } catch (e) {
         console.error(`Failed to generate image for ${heading}`, e);
+        setInlineErrors(prev => [...prev, { heading, error: "通信エラー" }]);
       }
     }
     setIsGeneratingInlines(false);
+  };
+
+  const handleRetryEyecatch = async () => {
+    if (!inputs || !displayTitle) return;
+    setEyecatchError(null);
+    setLogs(prev => [...prev, "アイキャッチを再試行中..."]);
+
+    try {
+      const imgRes = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: displayTitle,
+          articleText: articleText.substring(0, 1000),
+          visualStyle: inputs.visualStyle,
+          character: inputs.character,
+          referenceImage: inputs.referenceImage
+        }),
+      });
+      const imgData = await imgRes.json();
+      if (imgRes.ok && imgData.imageUrl) {
+        setGeneratedImage(imgData.imageUrl);
+        if (imgData.model) setImageModel(imgData.model);
+      } else {
+        setEyecatchError(imgData.error || "再試行に失敗しました");
+      }
+    } catch (e) {
+      setEyecatchError("通信エラーが発生しました");
+    }
+  };
+
+  const handleRetryInline = async (heading: string) => {
+    if (!inputs) return;
+    setInlineErrors(prev => prev.filter(e => e.heading !== heading));
+
+    try {
+      const imgRes = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: heading,
+          articleText: "Demonstration of: " + heading,
+          visualStyle: inputs.visualStyle,
+          character: inputs.character,
+          referenceImage: inputs.referenceImage,
+          promptOverride: `High quality ${inputs.visualStyle} illustration of ${inputs.character === '指定なし' ? 'a cozy object' : inputs.character} representing "${heading}", clear details, professional composition, textless background.`
+        }),
+      });
+      const imgData = await imgRes.json();
+      if (imgRes.ok && imgData.imageUrl) {
+        setInlineImages(prev => {
+          const filtered = prev.filter(p => p.heading !== heading);
+          return [...filtered, { heading, url: imgData.imageUrl }];
+        });
+      } else {
+        setInlineErrors(prev => [...prev, { heading, error: imgData.error || "再試行失敗" }]);
+      }
+    } catch (e) {
+      setInlineErrors(prev => [...prev, { heading, error: "通信エラー" }]);
+    }
   };
 
   const copyToClipboard = () => {
@@ -1077,20 +1181,55 @@ export default function Home() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-end">
                     <h3 className="text-xl font-bold text-white/80">アイキャッチ画像</h3>
-                    <a href={generatedImage || "#"} download="eyecatch.png" className="flex items-center gap-2 px-4 py-2 bg-orange-500 rounded-xl text-xs font-bold text-white hover:bg-orange-600 transition-all shadow-lg">
-                      <Download size={14} /> 保存
-                    </a>
+                    <div className="flex gap-2">
+                      {eyecatchError && (
+                        <button onClick={handleRetryEyecatch} className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/30 transition-all">
+                          <RotateCcw size={14} /> 再試行
+                        </button>
+                      )}
+                      <a href={generatedImage || "#"} download="eyecatch.png" className={cn("flex items-center gap-2 px-4 py-2 bg-orange-500 rounded-xl text-xs font-bold text-white hover:bg-orange-600 transition-all shadow-lg", !generatedImage && "opacity-50 pointer-events-none")}>
+                        <Download size={14} /> 保存
+                      </a>
+                    </div>
                   </div>
+
+                  {eyecatchError && (
+                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm flex items-center gap-3">
+                      <AlertCircle size={18} />
+                      <div className="flex-1">
+                        <p className="font-bold">生成に失敗しました</p>
+                        <p className="text-xs opacity-70">{eyecatchError}</p>
+                      </div>
+                    </div>
+                  )}
+
                   {generatedImage && (
-                    <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
-                      <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
-                        <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center">
-                          <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
-                            {displayTitle}
-                          </h1>
+                    <div className="space-y-4">
+                      <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
+                        <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
+                          <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
+                          {inputs?.showEyecatchTitle !== false && (
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center">
+                              <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
+                                {displayTitle}
+                              </h1>
+                            </div>
+                          )}
                         </div>
                       </div>
+                      {inputs?.showEyecatchTitle === false && (
+                        <div className="px-6 py-4 border-l-4 border-orange-500 bg-white/5 rounded-r-xl">
+                          <h2 className="text-xl md:text-2xl font-serif font-black text-white leading-relaxed">
+                            {displayTitle}
+                          </h2>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!generatedImage && !eyecatchError && (
+                    <div className="aspect-video w-full rounded-[24px] bg-white/5 border border-dashed border-white/10 flex items-center justify-center animate-pulse">
+                      <p className="text-white/20 italic">画像を生成中...</p>
                     </div>
                   )}
                 </div>
@@ -1140,6 +1279,21 @@ export default function Home() {
                         </div>
                       </div>
                     ))}
+                    {inlineErrors.map((err, i) => (
+                      <div key={`err-${i}`} className="glass-card p-4 rounded-[24px] border border-red-500/20 bg-red-500/5 flex flex-col items-center justify-center text-center space-y-3 min-h-[160px]">
+                        <AlertCircle className="text-red-500" size={24} />
+                        <div>
+                          <p className="text-xs font-bold text-red-400 line-clamp-1">{err.heading}</p>
+                          <p className="text-[10px] text-red-400/60 uppercase">生成エラー</p>
+                        </div>
+                        <button
+                          onClick={() => handleRetryInline(err.heading)}
+                          className="px-4 py-1.5 bg-red-500 text-white rounded-full text-[10px] font-bold hover:bg-red-600 transition-all flex items-center gap-2"
+                        >
+                          <RotateCcw size={12} /> 再試行
+                        </button>
+                      </div>
+                    ))}
                   </div>
 
                   {inlineImages.length === 0 && !isGeneratingInlines && (
@@ -1150,8 +1304,19 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-xl font-bold text-white/80">SNS用紹介文</h3>
-                  <div className="glass-card p-6 rounded-[24px] bg-black/40 text-sm italic leading-relaxed text-orange-200/60 border border-orange-500/10 font-serif">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-bold text-white/90">メタディスクリプション</h3>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(metaDescription);
+                        alert("メタディスクリプションをコピーしました");
+                      }}
+                      className="px-4 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold text-white transition-all border border-white/10"
+                    >
+                      コピー
+                    </button>
+                  </div>
+                  <div className="glass-card p-6 rounded-[24px] bg-white/5 border border-white/10 text-sm leading-relaxed text-gray-300">
                     {metaDescription}
                   </div>
                 </div>
