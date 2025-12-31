@@ -1,86 +1,34 @@
-
-# わど式 note 記事自動生成AIエージェント（再現版）
+# わど式 note 記事自動生成AIエージェント v2.1 (Repro)
 
 ## 概要
-このリポジトリは、
-ノウハウ入力 → note記事生成 → 品質スコア可視化 → アイキャッチ画像生成
-までを一気通貫で体験できる AI エージェント型 Web アプリの学習用再現実装です。
+このリポジトリは、ノウハウ入力から記事構成、本文執筆、そして高品質な「アイキャッチ・記事内画像」の生成までを一気通貫で行う、AIエージェント型Webアプリの実装です。
+2025年最新のAIモデル戦略を組み込み、note投稿に必要なすべての素材をワンストップで完成させます。
 
-単なる文章生成ではなく、
-状態遷移UI・生成ログ・品質スコア演出 を含む
-「プロダクト型AI」の構造理解を目的としています。
-
-## 主な機能
-- **note にそのまま貼れる記事本文の生成**
-- **生成中ログの可視化**（6ステップ）
-- **記事品質スコア（100点満点）の算出・表示**
-- **gemini-3-pro-image-preview を用いたアイキャッチ画像生成プロンプトの自動生成**
-- **スマホファースト UI**（ダーク基調／カードUI）
+## v2.1 の新機能
+- **Nano Banana Pro 連携**: `gemini-3-pro-image-preview` による透かしのない高品質画像生成。
+- **マルチ画像生成**: アイキャッチに加え、記事の内容に即した「インライン画像」を自動生成。
+- **note プレビュー**: 実際の note 投稿画面を再現したプレビュータブで、公開時のイメージを確認可能。
+- **メタデータ自動抽出**: SNS 用のメタディスクリプション（120文字）を自動生成。
+- **Strict Character Logic**: 参照画像のキャラクターを一貫して維持する「必須設定」スイッチを搭載。
+- **デザイン・アートディレクション**: ステッカー風の縁取りやアイコン接続など、AI による高度なビジュアル表現。
 
 ## 技術スタック
-- **Next.js**
-- **React**
-- **TypeScript**
-- **Vercel**
-- **Gemini API**
-  - 文章生成：Gemini（text系モデル）
-  - 画像生成：gemini-3-pro-image-preview（必須）
+- **Frontend**: Next.js (App Router), Tailwind CSS
+- **Backend**: Next.js API Routes, Google Gemini API
+- **AI Models**:
+  - Text: `gemini-3-flash-preview`
+  - Image: `gemini-3-pro-image-preview` (Nano Banana Pro)
+  - Fallback: `Pollinations AI (Flux)`
 
-## ディレクトリ構成
-- `src/app`: 画面とAPIルート (App Router)
-- `src/components`: UIコンポーネント (今回は `page.tsx` に統合実装)
-- `src/lib`: ロジック（スコア、プロンプト）
-- `src/styles`: グローバルCSS
+## セットアップ
+1. `npm install`
+2. `.env.local` に `GEMINI_API_KEY` を設定
+3. `npm run dev`
 
-## セットアップ手順
+## ドキュメント
+- [最新仕様書_v2.md](./最新仕様書_v2.md): アプリの全機能詳細
+- [開発履歴_20251231.md](./開発履歴_20251231.md): 開発における意思決定ログ
+- [nanobananaproの使い方.md](./nanobananaproの使い方.md): 画像生成モデルの活用ガイド
 
-1. **リポジトリをクローン**
-   ```bash
-   git clone https://github.com/akisuperprof-sketch/note-ai-agent2.git
-   cd note-ai-agent2
-   ```
-
-2. **依存関係をインストール**
-   ```bash
-   npm install
-   ```
-
-3. **環境変数を設定**
-   `.env.local` ファイルを作成し、Gemini API キーを設定してください。
-   ```
-   GEMINI_API_KEY=xxxxx
-   ```
-
-4. **ローカル起動**
-   ```bash
-   npm run dev
-   ```
-   http://localhost:3000 にアクセス。
-
-## デプロイ（Vercel）
-1. GitHub リポジトリを Vercel に接続
-2. Environment Variables に `GEMINI_API_KEY` を設定
-3. Deploy
-
-## アプリの画面構成
-- `/`: ホーム・3ステップ導線・初回ヘルプ
-- `Input`: 入力フォーム
-- `Generating`: 生成ログ
-- `Result`: 記事本文／コピー／画像プロンプト／スコア表示
-
-## 品質スコアについて
-以下の指標を 0〜100 に正規化し、加重平均で算出しています。
-- 文字数達成度
-- 読みやすさ（平均文長）
-- 構成の質（見出し数）
-- コンテンツ充実度（段落／リスト）
-- SEO 最適度（タイトル長）
-
-## 学習ポイント
-- プロンプトを「段階分割」する重要性
-- AI生成より UI / 状態管理が体験価値を左右する点
-- スコアやログは「正確さ」より「納得感」が重要である点
-
-## 注意
-この実装は学習目的です。
-商用利用する場合は、API 利用規約・課金設計・セキュリティ対策を必ず確認してください。
+---
+Developed by Antigravity AI @ 2025
