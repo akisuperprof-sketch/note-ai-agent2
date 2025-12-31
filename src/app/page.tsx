@@ -744,24 +744,32 @@ export default function Home() {
         let fullText = "";
 
         if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            fullText += chunk;
-            setArticleText(prev => prev + chunk);
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              fullText += chunk;
+              setArticleText(prev => prev + chunk);
+            }
+          } catch (e) {
+            console.error("Stream reader error:", e);
+            await addLog("【警告】通信が不安定です。可能な限り続行します...", 1000);
           }
         }
+
+        await addLog("執筆が完了しました。品質をチェックしています...", 1000);
 
         // --- Length Check & Retry ---
         const charCount = fullText.length;
         const minTarget = (data.targetLength || 5000) * 0.7; // 70% threshold
         if (charCount < minTarget) {
-          await addLog(`文字数が目標に届きませんでした (${charCount}字)。再試行します...`, 1000);
-          // Simple one-time retry or recursion (using a flag to avoid infinite loops)
           if (!data._isRetry) {
+            await addLog(`【重要】文字数が目標に届きませんでした (${charCount}字)。内容を詳細に膨らませて再プロデュースしています...`, 2000);
             handleGenerate({ ...data, _isRetry: true });
             return;
+          } else {
+            await addLog(`目標文字数に近づける努力をしました。最終的に ${charCount}文字 で納得のいく仕上がりになりました。`, 1000);
           }
         }
 
@@ -994,6 +1002,27 @@ export default function Home() {
         </div>
       )}
 
+      {status === "error" && (
+        <div className="glass-card p-10 rounded-[32px] border border-red-500/30 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mx-auto border border-red-500/20">
+            <AlertCircle size={40} className="text-red-500" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-white">エラーが発生しました</h2>
+            <p className="text-sm text-gray-400">プロデュース中に予期せぬトラブルが発生したようです。</p>
+          </div>
+          <div className="p-4 bg-black/40 rounded-xl border border-red-900/20 font-mono text-xs text-red-400 text-left overflow-x-auto">
+            {logs[logs.length - 1]}
+          </div>
+          <button
+            onClick={() => setStatus("outline")}
+            className="px-8 py-3 rounded-full bg-white text-black font-black hover:bg-gray-200 transition-all"
+          >
+            前の画面に戻る
+          </button>
+        </div>
+      )}
+
       {status === "done" && (
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6 md:space-y-8">
           <button
@@ -1038,14 +1067,28 @@ export default function Home() {
                     <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
                       <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                         <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-10 px-8 text-center">
-                          <h1 className="text-2xl md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center">
+                          <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
                             {displayTitle}
                           </h1>
                         </div>
                       </div>
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <h3 className="text-xl font-bold text-white/80">記事原稿</h3>
+                    <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-white hover:bg-white/10 transition-all">
+                      <Copy size={14} /> 本文をコピー
+                    </button>
+                  </div>
+                  <div className="glass-card p-6 rounded-[24px] bg-black/40 border border-white/5 max-h-96 overflow-y-auto scrollbar-hide">
+                    <pre className="whitespace-pre-wrap font-sans text-sm text-gray-300 leading-relaxed">
+                      {articleText}
+                    </pre>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
