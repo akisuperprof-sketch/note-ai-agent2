@@ -43,10 +43,14 @@ JSON形式のみで出力してください。Markdownのコードブロック�
         const response = await result.response;
         const text = response.text();
 
+        if (!text) {
+            throw new Error("AI returned an empty response");
+        }
+
         console.log("Recommend AI raw output:", text);
 
         // Improved extraction
-        let jsonStr = text;
+        let jsonStr = text.trim();
         const jsonMatch = text.match(/```json\s*(\{[\s\S]*\})\s*```/) || text.match(/(\{[\s\S]*\})/);
         if (jsonMatch) {
             jsonStr = jsonMatch[1];
@@ -55,17 +59,22 @@ JSON形式のみで出力してください。Markdownのコードブロック�
         try {
             const recommendations = JSON.parse(jsonStr);
             return NextResponse.json({
-                targetAudience: recommendations.targetAudience || "",
-                goal: recommendations.goal || "",
-                differentiation: recommendations.differentiation || "",
-                outlineSupplement: recommendations.outlineSupplement || ""
+                targetAudience: recommendations.targetAudience || recommendations['誰に届けるか'] || "",
+                goal: recommendations.goal || recommendations['この記事だけの価値'] || "",
+                differentiation: recommendations.differentiation || recommendations['独自の切り口・コンセプト'] || "",
+                outlineSupplement: recommendations.outlineSupplement || recommendations['目次の構成・補足'] || ""
             });
         } catch (parseError) {
             console.error("JSON Parse Error:", parseError, "Raw text:", text);
-            return NextResponse.json({ error: "Invalid JSON from AI" }, { status: 500 });
+            return NextResponse.json({
+                error: "AIの回答を解析できませんでした。",
+                debug: text.substring(0, 100)
+            }, { status: 500 });
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Recommend error:", error);
-        return NextResponse.json({ error: "Failed to generate recommendations" }, { status: 500 });
+        return NextResponse.json({
+            error: `AI生成エラー: ${error.message || "不明なエラー"}`
+        }, { status: 500 });
     }
 }
