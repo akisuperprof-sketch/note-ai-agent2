@@ -1241,6 +1241,8 @@ export default function Home() {
     if (!inputs) return;
     setInlineErrors(prev => prev.filter(e => e.heading !== heading));
 
+    // Optimistic UI update: Show a loading state or similar if needed but for now clear error
+
     try {
       const imgRes = await fetch("/api/generate-image", {
         method: "POST",
@@ -1257,6 +1259,7 @@ export default function Home() {
       const imgData = await imgRes.json();
       if (imgRes.ok && imgData.imageUrl) {
         setInlineImages(prev => {
+          // Remove old image for this heading if exists and append new one
           const filtered = prev.filter(p => p.heading !== heading);
           return [...filtered, { heading, url: imgData.imageUrl }];
         });
@@ -1445,7 +1448,12 @@ export default function Home() {
                         <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                           <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
                           {inputs?.showEyecatchTitle !== false && (
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center">
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center group">
+                              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                <button onClick={handleRetryEyecatch} className="p-2 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm transition-all" title="この画像を再作成">
+                                  <RotateCcw size={18} />
+                                </button>
+                              </div>
                               <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
                                 {displayTitle}
                               </h1>
