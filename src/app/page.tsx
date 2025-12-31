@@ -161,6 +161,37 @@ function InputForm({
   const [strictCharacter, setStrictCharacter] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Load persistence
+  useEffect(() => {
+    const saved = localStorage.getItem("panda_last_inputs");
+    if (saved) {
+      try {
+        const d = JSON.parse(saved);
+        setTopic(d.topic || "");
+        setTargetAudience(d.targetAudience || "");
+        setGoal(d.goal || "");
+        setTargetLength(d.targetLength || 2500);
+        setTone(d.tone || "やさしい");
+        setDifferentiation(d.differentiation || "");
+        setOutlineSupplement(d.outlineSupplement || "");
+        setVisualStyle(d.visualStyle || "アニメ塗り");
+        setCharacter(d.character || "note記事つくレッサーパンダ");
+        setReferenceImage(d.referenceImage || null);
+        setStrictCharacter(d.strictCharacter ?? true);
+      } catch (e) { console.error("Failed to load persistence", e); }
+    }
+  }, []);
+
+  // Save persistence
+  useEffect(() => {
+    const d = {
+      topic, targetAudience, goal, targetLength, tone,
+      differentiation, outlineSupplement, visualStyle, character,
+      referenceImage, strictCharacter
+    };
+    localStorage.setItem("panda_last_inputs", JSON.stringify(d));
+  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, referenceImage, strictCharacter]);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -508,10 +539,105 @@ function ScoreBars({ details, metrics }: { details: ArticleScore['details'], met
   );
 }
 
+// --- History Feature ---
+type HistoryItem = {
+  id: string;
+  timestamp: string;
+  displayTitle: string;
+  articleText: string;
+  generatedImage: string | null;
+  inlineImages: { heading: string, url: string }[];
+  score: ArticleScore | null;
+  metaDescription: string;
+  inputs: any;
+};
+
+function HistoryList({
+  onRestore, onClose
+}: {
+  onRestore: (item: HistoryItem) => void, onClose: () => void
+}) {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("panda_history");
+    if (saved) {
+      try {
+        setItems(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    }
+  }, []);
+
+  const deleteItem = (id: string) => {
+    const updated = items.filter(i => i.id !== id);
+    setItems(updated);
+    localStorage.setItem("panda_history", JSON.stringify(updated));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-2xl glass-card rounded-[32px] overflow-hidden flex flex-col max-h-[85vh] border border-orange-500/20 shadow-2xl">
+        <div className="p-6 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📚</span>
+            <div>
+              <h2 className="text-lg font-black text-white">過去のプロデュース履歴</h2>
+              <p className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">History Management</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/40 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {items.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-white/20 italic">
+              <span className="text-4xl mb-4">🐾</span>
+              履歴はまだありません
+            </div>
+          ) : (
+            items.map(item => (
+              <div key={item.id} className="group glass-card p-4 rounded-2xl bg-white/5 border border-white/5 hover:border-orange-500/30 transition-all">
+                <div className="flex gap-4">
+                  {item.generatedImage ? (
+                    <img src={item.generatedImage} className="w-24 h-24 object-cover rounded-xl border border-white/10" />
+                  ) : (
+                    <div className="w-24 h-24 bg-white/5 rounded-xl flex items-center justify-center text-xl">🐾</div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-mono text-white/30">{item.timestamp}</span>
+                      <button onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }} className="p-1.5 text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <h3 className="text-sm font-bold text-white mb-1 truncate">{item.displayTitle}</h3>
+                    <p className="text-[10px] text-gray-400 line-clamp-2 mb-3 leading-relaxed">{item.metaDescription || item.articleText.substring(0, 100)}</p>
+                    <button
+                      onClick={() => onRestore(item)}
+                      className="text-[10px] font-black uppercase tracking-tighter bg-orange-500 text-white px-4 py-1.5 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all"
+                    >
+                      この結果を復元する
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Page Updated Logic ---
 
 export default function Home() {
   const [showHelp, setShowHelp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [status, setStatus] = useState<AppStatus>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [inputs, setInputs] = useState<any>(null);
@@ -524,6 +650,8 @@ export default function Home() {
   const [imageModel, setImageModel] = useState("");
   const [inlineImage, setInlineImage] = useState<string | null>(null);
   const [inlineHeading, setInlineHeading] = useState("");
+  const [inlineImages, setInlineImages] = useState<{ heading: string, url: string }[]>([]);
+  const [isGeneratingInlines, setIsGeneratingInlines] = useState(false);
   const [metaDescription, setMetaDescription] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
 
@@ -531,6 +659,31 @@ export default function Home() {
     const hideHelp = localStorage.getItem("hideHelp");
     if (!hideHelp) setShowHelp(true);
   }, []);
+
+  const saveToHistory = (item: Omit<HistoryItem, "id" | "timestamp">) => {
+    const newItem: HistoryItem = {
+      ...item,
+      id: Math.random().toString(36).substring(7),
+      timestamp: new Date().toLocaleString("ja-JP"),
+    };
+    const saved = localStorage.getItem("panda_history");
+    const history = saved ? JSON.parse(saved) : [];
+    const updated = [newItem, ...history].slice(0, 10); // Keep last 10
+    localStorage.setItem("panda_history", JSON.stringify(updated));
+  };
+
+  const restoreHistory = (item: HistoryItem) => {
+    setInputs(item.inputs);
+    setArticleText(item.articleText);
+    setGeneratedImage(item.generatedImage);
+    setInlineImages(item.inlineImages);
+    setScore(item.score);
+    setMetaDescription(item.metaDescription);
+    setDisplayTitle(item.displayTitle);
+    setStatus("done");
+    setActiveTab("result");
+    setShowHistory(false);
+  };
 
   const addLog = async (msg: string, delay: number) => {
     await new Promise(r => setTimeout(r, delay));
@@ -586,13 +739,19 @@ export default function Home() {
         const extractedTitle = titleMatch ? titleMatch[1].trim() : data.topic;
         setDisplayTitle(extractedTitle);
 
-        // Simple extraction for meta description (first long paragraph or first 120 chars)
-        const paragraphs = fullText.split("\n\n").filter(p => !p.startsWith("#"));
+        // Simple extraction for meta description
+        const paragraphs = fullText.split("\n\n")
+          .filter(p => !p.startsWith("#"))
+          .filter(p => !p.includes("レッサーパンダ") && !p.includes("サポートするよ")); // Filter out persona greetings
         const firstMeaningfulParam = paragraphs.find(p => p.length > 50) || "";
         setMetaDescription(firstMeaningfulParam.substring(0, 120) + "...");
 
         const finalScore = calculateArticleScore(fullText, data.targetLength || 5000);
         setScore(finalScore);
+
+        let finalImgUrl: string | null = null;
+        let finalInlineUrl: string | null = null;
+        let headingText = "この記事のポイント";
 
         setStatus("image_prompt");
         // --- 1. Header Image ---
@@ -611,6 +770,7 @@ export default function Home() {
           });
           const imgData = await imgRes.json();
           if (imgRes.ok && imgData.imageUrl) {
+            finalImgUrl = imgData.imageUrl;
             setGeneratedImage(imgData.imageUrl);
             if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
             if (imgData.model) setImageModel(imgData.model);
@@ -620,11 +780,11 @@ export default function Home() {
           }
         } catch (e) { console.error("Header image failed", e); }
 
-        // --- 2. Inline Image ---
+        // --- 2. Initial Inline Image (First one) ---
         await addLog("記事内画像を生成中...", 1000);
         try {
           const firstHeadingMatch = fullText.match(/##\s+(.+)/);
-          const headingText = firstHeadingMatch ? firstHeadingMatch[1] : "この記事のポイント";
+          headingText = firstHeadingMatch ? firstHeadingMatch[1] : "この記事のポイント";
           setInlineHeading(headingText);
 
           const imgRes = await fetch("/api/generate-image", {
@@ -641,13 +801,26 @@ export default function Home() {
           });
           const imgData = await imgRes.json();
           if (imgRes.ok && imgData.imageUrl) {
+            finalInlineUrl = imgData.imageUrl;
             setInlineImage(imgData.imageUrl);
-          } else {
-            console.warn("Inline image failed:", imgData.error);
+            setInlineImages([{ heading: headingText, url: imgData.imageUrl }]);
           }
-        } catch (e) { console.error("Inline image failed", e); }
+        } catch (e) {
+          console.error("Inline image failed", e);
+        }
+
+        const finalMeta = paragraphs.find(p => p.length > 50)?.substring(0, 120) + "..." || "";
 
         setStatus("done");
+        saveToHistory({
+          displayTitle: extractedTitle,
+          articleText: fullText,
+          generatedImage: finalImgUrl,
+          inlineImages: finalInlineUrl ? [{ heading: headingText, url: finalInlineUrl }] : [],
+          score: finalScore,
+          metaDescription: finalMeta,
+          inputs: data
+        });
         await addLog("カンペキです！", 500);
 
       } catch (e) {
@@ -662,6 +835,42 @@ export default function Home() {
   };
 
 
+  const handleGenerateAllInlineImages = async () => {
+    const headings = Array.from(articleText.matchAll(/##\s+(.+)/g)).map(m => m[1]);
+    if (headings.length === 0) return;
+
+    const count = headings.length;
+    if (!confirm(`全${count}箇所の見出しに合わせて、${count}枚の画像を生成します。よろしいですか？\n※生成完了まで少し時間がかかります。`)) return;
+
+    setIsGeneratingInlines(true);
+    const results: { heading: string, url: string }[] = [];
+
+    for (const heading of headings) {
+      try {
+        const imgRes = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: heading,
+            articleText: "Concept: " + heading,
+            visualStyle: "Simple Flat Illustration",
+            character: inputs.character,
+            referenceImage: inputs.referenceImage,
+            promptOverride: `Simple clean flat anime illustration of ${inputs.character === '指定なし' ? 'a cozy object' : inputs.character} showing context of "${heading}", textless background, bright minimal colors.`
+          }),
+        });
+        const imgData = await imgRes.json();
+        if (imgRes.ok && imgData.imageUrl) {
+          results.push({ heading, url: imgData.imageUrl });
+          setInlineImages([...results]); // Update incrementally
+        }
+      } catch (e) {
+        console.error(`Failed to generate image for ${heading}`, e);
+      }
+    }
+    setIsGeneratingInlines(false);
+  };
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(articleText);
     alert("コピーしました");
@@ -671,6 +880,7 @@ export default function Home() {
     <div className="min-h-screen pb-20 pt-20 px-4 md:px-8 max-w-2xl mx-auto">
       <Header />
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showHistory && <HistoryList onRestore={restoreHistory} onClose={() => setShowHistory(false)} />}
 
       {status === "idle" && (
         <div className="animate-in fade-in slide-in-from-top-12 duration-1000">
@@ -684,6 +894,14 @@ export default function Home() {
             <p className="text-lg md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed font-serif italic">
               "僕が君の代わりに、noteに最適な構成と執筆、そして画像までをプロデュースするよ！"
             </p>
+            <div className="mt-8">
+              <button
+                onClick={() => setShowHistory(true)}
+                className="flex items-center gap-2 mx-auto px-6 py-2 bg-white/5 border border-white/10 rounded-full text-xs font-bold text-white/60 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <RotateCcw size={14} /> 過去の履歴を見る
+              </button>
+            </div>
           </div>
 
           <h2 className="text-xl font-bold mb-4 text-white/70 flex items-center gap-2">
@@ -697,6 +915,17 @@ export default function Home() {
 
       {status === "outline" && (
         <>
+          <div className="flex items-center justify-between mb-6">
+            <button onClick={() => setStatus("idle")} className="p-2 text-white/40 hover:text-white">
+              <X size={24} />
+            </button>
+            <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center gap-2 px-4 py-1.5 bg-white/5 border border-white/10 rounded-full text-[10px] font-bold text-white/60 hover:text-white transition-all uppercase tracking-widest"
+            >
+              History
+            </button>
+          </div>
           <InputForm onSubmit={handleGenerate} isGenerating={false} />
           <BrandFooter />
         </>
@@ -788,17 +1017,39 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-xl font-bold text-white/80">記事内画像（解説図）</h3>
-                  {inlineImage ? (
-                    <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
-                      <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
-                        <img src={inlineImage} alt="Inline" className="w-full h-full object-contain" />
-                        <div className="absolute bottom-0 inset-x-0 bg-orange-950/80 py-3 px-4 backdrop-blur-sm border-t border-orange-500/30">
-                          <p className="text-center text-orange-100 text-sm font-bold truncate">Section Analysis: {inlineHeading}</p>
+                  <div className="flex justify-between items-end">
+                    <h3 className="text-xl font-bold text-white/80">記事内画像（解説図）</h3>
+                    {inlineImages.length === 1 && !isGeneratingInlines && (
+                      <button
+                        onClick={handleGenerateAllInlineImages}
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-orange-400 hover:bg-white/10 transition-all"
+                      >
+                        <ImagePlus size={14} /> 全ての章の画像を生成
+                      </button>
+                    )}
+                  </div>
+
+                  {isGeneratingInlines && (
+                    <div className="p-8 glass-card rounded-[24px] border border-orange-500/20 text-center space-y-4 animate-pulse">
+                      <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                      <p className="text-orange-200 text-sm font-bold">全{articleText.match(/##/g)?.length || 0}枚の画像を生成中... ({inlineImages.length}枚完了)</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {inlineImages.map((img, i) => (
+                      <div key={i} className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
+                        <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
+                          <img src={img.url} alt={img.heading} className="w-full h-full object-contain" />
+                          <div className="absolute bottom-0 inset-x-0 bg-orange-950/80 py-3 px-4 backdrop-blur-sm border-t border-orange-500/30">
+                            <p className="text-center text-orange-100 text-[10px] font-bold truncate">{img.heading}</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
+                    ))}
+                  </div>
+
+                  {inlineImages.length === 0 && !isGeneratingInlines && (
                     <div className="h-40 glass-card rounded-[24px] flex items-center justify-center text-white/20 text-sm italic">
                       思考の視覚化をスキップしました
                     </div>
@@ -852,11 +1103,27 @@ export default function Home() {
 
                     <div className="prose prose-stone max-w-none text-xl leading-[2.2] text-gray-800 font-serif">
                       <div className="whitespace-pre-wrap break-words indent-4">
-                        {articleText.split('\n\n').map((para, i) => (
-                          <p key={i} className="mb-10 first-letter:text-3xl first-letter:font-black first-letter:text-orange-600">
-                            {para}
-                          </p>
-                        ))}
+                        {articleText.split('\n\n').map((para, i) => {
+                          const isHeading = para.startsWith('##');
+                          const headingText = isHeading ? para.replace('##', '').trim() : '';
+                          const associatedImage = isHeading ? inlineImages.find(img => img.heading === headingText) : null;
+
+                          return (
+                            <div key={i} className="mb-10">
+                              <p className={cn(isHeading ? "text-2xl font-black text-gray-900 mt-16 mb-8" : "mb-10 first-letter:text-3xl first-letter:font-black first-letter:text-orange-600")}>
+                                {para}
+                              </p>
+                              {associatedImage && (
+                                <div className="my-8 rounded-2xl overflow-hidden border-4 border-white shadow-xl rotate-1">
+                                  <img src={associatedImage.url} alt={headingText} className="w-full h-auto" />
+                                  <div className="bg-orange-50 p-3 text-center text-xs font-bold text-orange-800 border-t border-orange-100">
+                                    {headingText} - Visualization
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
