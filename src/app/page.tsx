@@ -512,7 +512,6 @@ function InputForm({
             <option value={30000}>30,000文字（書籍級）</option>
             <option value={50000}>50,000文字（電子書籍）</option>
             <option value={100000}>100,000文字（長編小説）</option>
-            <option value={200000}>200,000文字（辞書級）</option>
           </select>
         </div>
         <div className="space-y-2">
