@@ -609,6 +609,7 @@ type HistoryItem = {
   inlineImages: { heading: string, url: string }[];
   score: ArticleScore | null;
   metaDescription: string;
+  hashtags: string[];
   inputs: any;
 };
 
@@ -713,6 +714,7 @@ export default function Home() {
   const [inlineImages, setInlineImages] = useState<{ heading: string, url: string }[]>([]);
   const [isGeneratingInlines, setIsGeneratingInlines] = useState(false);
   const [metaDescription, setMetaDescription] = useState("");
+  const [hashtags, setHashtags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
   const [eyecatchError, setEyecatchError] = useState<string | null>(null);
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
@@ -741,6 +743,7 @@ export default function Home() {
     setInlineImages(item.inlineImages);
     setScore(item.score);
     setMetaDescription(item.metaDescription);
+    setHashtags(item.hashtags || []);
     setDisplayTitle(item.displayTitle);
     setStatus("done");
     setActiveTab("result");
@@ -756,8 +759,11 @@ export default function Home() {
     setInputs(data);
     setStatus("outline");
     setLogs([]);
-    setArticleText("");
-    setScore(null);
+    setInlineHeading("");
+    setInlineImages([]);
+    setMetaDescription("");
+    setHashtags([]);
+    setIsGeneratingInlines(false);
     setGeneratedImage(null);
     setImagePrompt("");
     setEyecatchError(null);
@@ -829,6 +835,14 @@ export default function Home() {
           .filter(p => !p.includes("レッサーパンダ") && !p.includes("サポートするよ")); // Filter out persona greetings
         const firstMeaningfulParam = paragraphs.find(p => p.length > 50) || "";
         setMetaDescription(firstMeaningfulParam.substring(0, 120) + "...");
+
+        // Extract hashtags
+        const tagMatch = fullText.match(/【おすすめのハッシュタグ】(.+)$/m);
+        let currentHashtags: string[] = [];
+        if (tagMatch) {
+          currentHashtags = tagMatch[1].trim().split(/\s+/).filter(t => t.startsWith("#") || t.length > 0).map(t => t.startsWith("#") ? t : `#${t}`);
+          setHashtags(currentHashtags);
+        }
 
         const finalScore = calculateArticleScore(fullText, data.targetLength || 5000);
         setScore(finalScore);
@@ -913,6 +927,7 @@ export default function Home() {
           inlineImages: finalInlineUrl ? [{ heading: headingText, url: finalInlineUrl }] : [],
           score: finalScore,
           metaDescription: finalMeta,
+          hashtags: currentHashtags,
           inputs: data
         });
         await addLog("カンペキです！", 500);
@@ -1320,6 +1335,30 @@ export default function Home() {
                     {metaDescription}
                   </div>
                 </div>
+
+                {hashtags.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-white/90">おすすめのハッシュタグ</h3>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(hashtags.join(" "));
+                          alert("ハッシュタグをコピーしました");
+                        }}
+                        className="px-4 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold text-white transition-all border border-white/10"
+                      >
+                        すべてコピー
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {hashtags.map((tag, i) => (
+                        <span key={i} className="px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full text-xs font-bold text-orange-400">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
