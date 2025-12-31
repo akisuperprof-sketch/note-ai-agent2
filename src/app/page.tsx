@@ -681,6 +681,12 @@ function HistoryList({
     }
   };
 
+  const deleteItem = (id: string) => {
+    const updated = items.filter(i => i.id !== id);
+    setItems(updated);
+    localStorage.setItem("panda_history", JSON.stringify(updated));
+  };
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
       <div className="w-full max-w-2xl glass-card rounded-[32px] overflow-hidden flex flex-col max-h-[85vh] border border-orange-500/20 shadow-2xl">
