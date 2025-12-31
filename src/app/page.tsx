@@ -508,6 +508,11 @@ function InputForm({
             <option value={5000}>5,000文字（標準）</option>
             <option value={8000}>8,000文字（長編）</option>
             <option value={10000}>10,000文字（網羅）</option>
+            <option value={20000}>20,000文字（超大作）</option>
+            <option value={30000}>30,000文字（書籍級）</option>
+            <option value={50000}>50,000文字（電子書籍）</option>
+            <option value={100000}>100,000文字（長編小説）</option>
+            <option value={200000}>200,000文字（辞書級）</option>
           </select>
         </div>
         <div className="space-y-2">
@@ -1029,7 +1034,7 @@ export default function Home() {
 
         // --- Length Check & Retry ---
         const charCount = fullText.length;
-        const minTarget = (data.targetLength || 5000) * 0.7; // 70% threshold
+        const minTarget = (data.targetLength || 5000) * 0.3; // 30% threshold for very long content
         if (charCount < minTarget) {
           if (!data._isRetry) {
             await addLog(`【重要】文字数が目標に届きませんでした (${charCount}字)。内容を詳細に膨らませて再プロデュースしています...`, 2000);
