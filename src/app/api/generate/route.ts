@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         } = body;
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
         const prompt = `
 あなたは「note記事つくレッサーパンダ」です。プロのnote編集者兼ライターとして、読者が一瞬で内容を理解でき、かつ共感できる高品質な原稿を作成してください。

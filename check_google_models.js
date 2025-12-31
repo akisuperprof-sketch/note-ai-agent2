@@ -46,19 +46,14 @@ https.get(url, (res) => {
             const gemini3Models = [];
 
             models.forEach(m => {
+                console.log(`  - ${m.name}`);
                 // 画像生成っぽいモデルを抽出
                 if (m.name.includes("image") || m.supportedGenerationMethods?.includes("generateImage")) {
                     imageModels.push(m.name);
-                    console.log(`  📸 [IMAGE] ${m.name} (${m.version})`);
                 }
                 // Gemini 3系を抽出
                 else if (m.name.includes("gemini-3")) {
                     gemini3Models.push(m.name);
-                    console.log(`  ✨ [GEM 3] ${m.name}`);
-                }
-                else {
-                    // その他
-                    // console.log(`  - ${m.name}`);
                 }
             });
 
