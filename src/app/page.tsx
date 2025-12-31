@@ -890,6 +890,113 @@ export default function Home() {
   const [eyecatchError, setEyecatchError] = useState<string | null>(null);
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
+  // Experimental Features
+  const [isDevMode, setIsDevMode] = useState(false);
+
+  // Helper: Canvas Image Composition (Client-side)
+  const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
+    try {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // Important for CORS if images are from external CDN
+      img.src = imageUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      // Set resolution (1920x1080 usually)
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+
+      // Draw original image
+      ctx.drawImage(img, 0, 0);
+
+      if (type === 'eyecatch') {
+        // Eyecatch Style: Bold Title Overlay
+        if (inputs?.showEyecatchTitle !== false) {
+          // Gradient Background at bottom
+          const grad = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(1, "rgba(0,0,0,0.85)");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, canvas.height * 0.5, canvas.width, canvas.height * 0.5);
+
+          // Text Settings
+          ctx.font = "bold 80px 'Hiragino Mincho ProN', 'Yu Mincho', serif";
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.shadowColor = "rgba(0,0,0,0.8)";
+          ctx.shadowBlur = 20;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 4;
+
+          // Word Wrap Logic
+          const maxWidth = canvas.width * 0.9;
+          const words = title.split('');
+          let line = '';
+          let lines = [];
+
+          for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n];
+            const metrics = ctx.measureText(testLine);
+            if (metrics.width > maxWidth && n > 0) {
+              lines.push(line);
+              line = words[n];
+            } else {
+              line = testLine;
+            }
+          }
+          lines.push(line);
+
+          // Draw Text
+          let lineHeight = 100;
+          let startY = canvas.height - 100 - ((lines.length - 1) * lineHeight);
+
+          lines.forEach((l, i) => {
+            ctx.fillText(l, canvas.width / 2, startY + (i * lineHeight));
+          });
+        }
+      } else {
+        // Inline Style: Orange Bar at Bottom
+        const barHeight = canvas.height * 0.15;
+        const startY = canvas.height - barHeight;
+
+        // Draw Bar
+        ctx.fillStyle = "rgba(67, 20, 7, 0.9)"; // Orange-950 like
+        ctx.fillRect(0, startY, canvas.width, barHeight);
+
+        // Top Border
+        ctx.fillStyle = "rgba(249, 115, 22, 0.4)"; // Orange-500 like
+        ctx.fillRect(0, startY, canvas.width, 4);
+
+        // Text
+        ctx.font = "bold 60px sans-serif";
+        ctx.fillStyle = "#ffedd5"; // Orange-100 like
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "transparent";
+
+        ctx.fillText(title, canvas.width / 2, startY + (barHeight / 2));
+      }
+
+      // Download
+      const link = document.createElement('a');
+      link.download = type === 'eyecatch' ? 'eyecatch_merged.png' : `${title}_merged.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+
+    } catch (e) {
+      console.error("Merge failed", e);
+      alert("画像の合成保存に失敗しました。通常保存を試してください。");
+    }
+  };
+
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
     if (!hideHelp) setShowHelp(true);
@@ -1426,10 +1533,28 @@ export default function Home() {
                           <RotateCcw size={14} /> 再試行
                         </button>
                       )}
-                      <a href={generatedImage || "#"} download="eyecatch.png" className={cn("flex items-center gap-2 px-4 py-2 bg-orange-500 rounded-xl text-xs font-bold text-white hover:bg-orange-600 transition-all shadow-lg", !generatedImage && "opacity-50 pointer-events-none")}>
-                        <Download size={14} /> 保存
-                      </a>
+
+                      {isDevMode ? (
+                        <button
+                          onClick={() => generatedImage && saveMergedImage(generatedImage, displayTitle, 'eyecatch')}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 rounded-xl text-xs font-bold text-white hover:bg-purple-700 transition-all shadow-lg ring-2 ring-purple-400/50"
+                        >
+                          <Download size={14} /> 合成保存(Beta)
+                        </button>
+                      ) : (
+                        <a href={generatedImage || "#"} download="eyecatch.png" className={cn("flex items-center gap-2 px-4 py-2 bg-orange-500 rounded-xl text-xs font-bold text-white hover:bg-orange-600 transition-all shadow-lg", !generatedImage && "opacity-50 pointer-events-none")}>
+                          <Download size={14} /> 保存
+                        </a>
+                      )}
                     </div>
+                  </div>
+
+                  {/* Dev Mode Toggle */}
+                  <div className="flex justify-end mt-2">
+                    <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer hover:text-white transition-colors bg-white/5 px-3 py-1 rounded-full border border-white/5">
+                      <input type="checkbox" checked={isDevMode} onChange={e => setIsDevMode(e.target.checked)} className="rounded border-gray-600 text-orange-500 focus:ring-orange-500" />
+                      <span>🛠️ タイトル焼き込みモード (Beta)</span>
+                    </label>
                   </div>
 
                   {eyecatchError && (
@@ -1521,6 +1646,18 @@ export default function Home() {
                             <p className="text-center text-orange-100 text-[10px] font-bold truncate">{img.heading}</p>
                           </div>
                         </div>
+                        {isDevMode ? (
+                          <button
+                            onClick={() => saveMergedImage(img.url, img.heading, 'inline')}
+                            className="block w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 rounded-lg text-center text-[10px] text-purple-200 font-bold transition-all mt-2 border border-purple-500/30"
+                          >
+                            ⚡️ タイトル合成保存
+                          </button>
+                        ) : (
+                          <a href={img.url} download={`inline-${i}.png`} className="block w-full py-2 bg-white/5 hover:bg-white/10 rounded-lg text-center text-[10px] text-white/60 font-bold transition-all mt-2">
+                            画像を保存
+                          </a>
+                        )}
                       </div>
                     ))}
                     {inlineErrors.map((err, i) => (
@@ -1698,7 +1835,8 @@ export default function Home() {
             <BrandFooter />
           </div>
         </div>
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 }
