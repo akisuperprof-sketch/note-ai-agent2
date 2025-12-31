@@ -284,12 +284,32 @@ function InputForm({
               )}
             </button>
           </div>
-          <textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="（例）初心者向けのNotion使い方。データベース機能を中心に、タスク管理のテンプレートの作り方を解説したい。"
-            className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none font-serif"
-          />
+          <div className="relative group">
+            <textarea
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="（例）初心者向けのNotion使い方。データベース機能を中心に、タスク管理のテンプレートの作り方を解説したい。"
+              className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none font-serif"
+            />
+            {topic && (
+              <div className="absolute top-3 right-3 flex gap-2">
+                <button
+                  onClick={() => navigator.clipboard.writeText(topic)}
+                  className="p-1.5 bg-black/50 hover:bg-black/80 rounded-lg text-white/50 hover:text-white transition-colors border border-white/5"
+                  title="コピー"
+                >
+                  <Copy size={14} />
+                </button>
+                <button
+                  onClick={() => setTopic("")}
+                  className="p-1.5 bg-black/50 hover:bg-black/80 rounded-lg text-white/50 hover:text-red-400 transition-colors border border-white/5"
+                  title="消去"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Reference Image Upload */}
@@ -361,45 +381,117 @@ function InputForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">誰に届けるか</label>
-          <input
-            type="text"
-            value={targetAudience}
-            onChange={(e) => setTargetAudience(e.target.value)}
-            placeholder="（例）20代の若手社員"
-            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
-          />
+          <div className="relative group">
+            <input
+              type="text"
+              value={targetAudience}
+              onChange={(e) => setTargetAudience(e.target.value)}
+              placeholder="（例）20代の若手社員"
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors pr-20"
+            />
+            {targetAudience && (
+              <div className="absolute top-1/2 -translate-y-1/2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => navigator.clipboard.writeText(targetAudience)}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-white transition-colors"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={() => setTargetAudience("")}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-red-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">この記事だけの価値</label>
-          <input
-            type="text"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            placeholder="（例）信頼獲得、LINE登録"
-            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
-          />
+          <div className="relative group">
+            <input
+              type="text"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="（例）信頼獲得、LINE登録"
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors pr-20"
+            />
+            {goal && (
+              <div className="absolute top-1/2 -translate-y-1/2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => navigator.clipboard.writeText(goal)}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-white transition-colors"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={() => setGoal("")}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-red-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">独自の切り口・コンセプト</label>
-          <input
-            type="text"
-            value={differentiation}
-            onChange={(e) => setDifferentiation(e.target.value)}
-            placeholder="（例）競合にはない独自の視点や体験談"
-            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
-          />
+          <div className="relative group">
+            <input
+              type="text"
+              value={differentiation}
+              onChange={(e) => setDifferentiation(e.target.value)}
+              placeholder="（例）競合にはない独自の視点や体験談"
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors pr-20"
+            />
+            {differentiation && (
+              <div className="absolute top-1/2 -translate-y-1/2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => navigator.clipboard.writeText(differentiation)}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-white transition-colors"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={() => setDifferentiation("")}
+                  className="p-1.5 hover:bg-white/10 rounded-md text-white/50 hover:text-red-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">目次の構成・補足</label>
-          <textarea
-            value={outlineSupplement}
-            onChange={(e) => setOutlineSupplement(e.target.value)}
-            placeholder="（例）具体的な成功事例と失敗から学んだこと"
-            className="w-full h-24 bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none"
-          />
+          <div className="relative group">
+            <textarea
+              value={outlineSupplement}
+              onChange={(e) => setOutlineSupplement(e.target.value)}
+              placeholder="（例）具体的な成功事例と失敗から学んだこと"
+              className="w-full h-24 bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none pr-10"
+            />
+            {outlineSupplement && (
+              <div className="absolute top-2 right-2 flex gap-1 bg-black/40 rounded-lg p-1">
+                <button
+                  onClick={() => navigator.clipboard.writeText(outlineSupplement)}
+                  className="p-1.5 hover:bg-white/20 rounded-md text-white/50 hover:text-white transition-colors"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={() => setOutlineSupplement("")}
+                  className="p-1.5 hover:bg-white/20 rounded-md text-white/50 hover:text-red-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
