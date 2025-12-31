@@ -24,8 +24,12 @@ export async function POST(req: NextRequest) {
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 let subjectSetting = character;
-                if (character === "指定なし") {
-                    subjectSetting = referenceImage ? "The specific character and style from the attached reference image." : "No specific character. Focus on environment, landscape, or symbolic objects.";
+                if (character === "note記事つくレッサーパンダ") {
+                    subjectSetting = "A cute, fluffy red panda character with big sparkling eyes, holding a pencil and a notepad. It should look friendly and like a professional AI editor. Anime style, soft coloring.";
+                } else if (character === "参考画像") {
+                    subjectSetting = "The specific character and style from the attached reference image. Replicate the facial features and outfits exactly.";
+                } else if (character === "指定なし") {
+                    subjectSetting = "No specific character. Focus on environment, landscape, or symbolic objects.";
                 }
 
                 const strictInstruction = strictCharacter

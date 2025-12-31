@@ -23,16 +23,18 @@ type AppStatus = "idle" | "outline" | "writing" | "polish" | "scoring" | "image_
 function Header() {
   return (
     <header className="fixed top-0 left-0 right-0 h-16 border-b border-[rgba(255,255,255,0.08)] bg-[#0B0F1A]/80 backdrop-blur-md z-50 flex items-center justify-between px-6">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center text-white font-bold shadow-lg shadow-purple-500/20">
-          <Sparkles size={18} />
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white font-bold shadow-lg shadow-orange-500/20 overflow-hidden border border-white/10">
+          <span className="text-xl">🐾</span>
         </div>
-        <h1 className="text-lg font-bold text-white tracking-wide">
-          わど式
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400 ml-1">AI Agent</span>
-        </h1>
+        <div className="flex flex-col">
+          <span className="text-[10px] text-orange-400 font-bold tracking-tighter leading-none opacity-80 mb-0.5">記事つくレッサーパンダの</span>
+          <h1 className="text-base md:text-lg font-black text-white tracking-widest leading-none">
+            note <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400">AI AGENT</span>
+          </h1>
+        </div>
       </div>
-      <div className="text-xs text-white/50 font-mono">v2.0 REPRO</div>
+      <div className="text-[10px] text-white/30 font-mono tracking-widest">v2.1 RED PANDA</div>
     </header>
   );
 }
@@ -49,51 +51,72 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="glass-card w-full max-w-md rounded-[24px] p-6 text-white shadow-2xl">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold">このツールの使い方</h2>
-          <button onClick={onClose}><X size={24} className="text-white/50" /></button>
+      <div className="glass-card w-full max-w-md rounded-[32px] p-8 text-white shadow-2xl border border-orange-500/30 bg-gradient-to-b from-[#1A110D] to-[#0B0F1A]">
+        <div className="flex justify-center mb-6">
+          <div className="w-20 h-20 rounded-full bg-white shadow-xl flex items-center justify-center text-5xl border-4 border-orange-500 drop-shadow-lg">🐾</div>
+        </div>
+
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400">Panda Editor's Guide</h2>
+          <p className="text-sm text-orange-200/60 font-serif italic">"僕があなたの記事作りを全力でサポートするよ！"</p>
         </div>
 
         <div className="space-y-4 mb-8">
-          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
-            <div className="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold shrink-0">1</div>
+          <div className="flex gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold shrink-0">1</div>
             <div>
               <h3 className="font-bold mb-1">ノウハウを入力</h3>
-              <p className="text-sm text-gray-400">箇条書きのメモや書きたいテーマを入力します。</p>
+              <p className="text-xs text-gray-400">メモやテーマを教えてね。僕が形にするよ！</p>
             </div>
           </div>
-          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
-            <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold shrink-0">2</div>
+          <div className="flex gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center font-bold shrink-0">2</div>
             <div>
-              <h3 className="font-bold mb-1">AIが記事生成</h3>
-              <p className="text-sm text-gray-400">構成・執筆・編集・画像プロンプト作成を全自動で行います。</p>
+              <h3 className="font-bold mb-1">AIがワンストップ生成</h3>
+              <p className="text-xs text-gray-400">構成から画像まで、僕が全部プロデュースするよ。</p>
             </div>
           </div>
-          <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
-            <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold shrink-0">3</div>
+          <div className="flex gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
+            <div className="w-8 h-8 rounded-full bg-yellow-500/20 text-yellow-400 flex items-center justify-center font-bold shrink-0">3</div>
             <div>
-              <h3 className="font-bold mb-1">コピーして完了</h3>
-              <p className="text-sm text-gray-400">品質スコアを確認し、noteに貼り付けて投稿完了です。</p>
+              <h3 className="font-bold mb-1">プレビューで確認</h3>
+              <p className="text-xs text-gray-400">パンダ印の独自ビューワーで仕上がりをチェック！</p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-6 cursor-pointer" onClick={() => setDoNotShow(!doNotShow)}>
-          <div className={cn("w-5 h-5 rounded border border-white/30 flex items-center justify-center transition-colors", doNotShow && "bg-purple-500 border-purple-500")}>
+        <div className="flex items-center gap-2 mb-6 cursor-pointer justify-center" onClick={() => setDoNotShow(!doNotShow)}>
+          <div className={cn("w-5 h-5 rounded border border-white/30 flex items-center justify-center transition-colors", doNotShow && "bg-orange-500 border-orange-500")}>
             {doNotShow && <Check size={14} />}
           </div>
-          <span className="text-sm text-gray-400">次回から表示しない</span>
+          <span className="text-xs text-gray-400">パンダのアドバイスを次回から非表示</span>
         </div>
 
         <button
           onClick={handleStart}
-          className="w-full py-4 rounded-[28px] bg-gradient-primary font-bold text-lg hover:shadow-lg hover:shadow-purple-500/25 transition-all text-white"
+          className="w-full py-4 rounded-[28px] bg-gradient-to-r from-orange-500 to-red-600 font-black text-lg hover:shadow-lg hover:shadow-orange-500/25 transition-all text-white active:scale-95"
         >
-          はじめる
+          レッサーパンダと執筆開始
         </button>
       </div>
     </div>
+  );
+}
+
+function BrandFooter() {
+  return (
+    <footer className="mt-20 py-12 border-t border-white/5 text-center">
+      <div className="flex flex-col items-center gap-4 opacity-40 hover:opacity-100 transition-opacity">
+        <div className="text-2xl">🐾</div>
+        <div className="text-[10px] font-mono tracking-[0.3em] uppercase">
+          Produced for original creators by<br />
+          <span className="text-orange-400 font-bold">note AI AGENT - Red Panda Project</span>
+        </div>
+        <div className="text-[9px] text-gray-600 mt-4 font-serif">
+          © 2025 note AI AGENT. All rights reserved. Independent AI Service.
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -101,9 +124,9 @@ function StepCards({ onStart }: { onStart: () => void }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       {[
-        { num: 1, title: "ノウハウ整理", desc: "メモを入力" },
-        { num: 2, title: "自動生成", desc: "AIが執筆" },
-        { num: 3, title: "コピー投稿", desc: "noteへ貼付" }
+        { num: 1, title: "記事の独自設計", desc: "独自の切り口を入力" },
+        { num: 2, title: "自動プロデュース", desc: "AIが執筆・画像生成" },
+        { num: 3, title: "貼付して完了", desc: "noteへ出力して投稿" }
       ].map((step) => (
         <div key={step.num} onClick={onStart} className="glass-card p-6 rounded-[24px] cursor-pointer hover:bg-white/10 transition-colors group">
           <div className="flex items-center justify-between mb-4">
@@ -131,8 +154,9 @@ function InputForm({
   const [targetLength, setTargetLength] = useState(2500);
   const [tone, setTone] = useState("やさしい");
   const [differentiation, setDifferentiation] = useState("");
+  const [outlineSupplement, setOutlineSupplement] = useState("");
   const [visualStyle, setVisualStyle] = useState("アニメ塗り");
-  const [character, setCharacter] = useState("指定なし");
+  const [character, setCharacter] = useState("note記事つくレッサーパンダ");
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [strictCharacter, setStrictCharacter] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -143,6 +167,7 @@ function InputForm({
       const reader = new FileReader();
       reader.onloadend = () => {
         setReferenceImage(reader.result as string);
+        setCharacter("参考画像"); // Auto-select Reference Image when uploaded
       };
       reader.readAsDataURL(file);
     }
@@ -154,13 +179,14 @@ function InputForm({
     setTargetLength(2500);
     setTone("やさしい");
     setDifferentiation("競合にはない独自の視点や体験談");
+    setOutlineSupplement("具体的な成功事例と失敗から学んだこと");
   };
 
   const handleSubmit = () => {
     if (!topic) return;
     onSubmit({
       topic, targetAudience, goal, targetLength, tone,
-      differentiation, visualStyle, character, referenceImage,
+      differentiation, outlineSupplement, visualStyle, character, referenceImage,
       strictCharacter
     });
   };
@@ -168,24 +194,32 @@ function InputForm({
   if (isGenerating) return null;
 
   return (
-    <div className="glass-card p-6 md:p-8 rounded-[24px] space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="glass-card p-6 md:p-8 rounded-[32px] space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 border border-orange-500/20 shadow-xl">
+      <div className="flex items-center gap-2 pb-4 border-b border-white/5">
+        <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400">📝</div>
+        <h2 className="text-xl font-black text-white">記事の独自設計</h2>
+      </div>
+
       <div className="space-y-4">
         {/* Topic Input */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
-            <label className="text-sm font-bold text-gray-400">記事テーマ・ノウハウメモ <span className="text-purple-400">*</span></label>
+            <label className="text-sm font-bold text-gray-400 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+              記事テーマ・ノウハウメモ
+            </label>
             <button
               onClick={handleAutoRecommend}
-              className="text-xs bg-gradient-to-r from-pink-500 to-purple-500 text-white px-3 py-1 rounded-full flex items-center gap-1 font-bold hover:opacity-90 transition-opacity"
+              className="text-[10px] bg-white/5 text-orange-400 border border-orange-500/30 px-3 py-1 rounded-full flex items-center gap-1 font-bold hover:bg-orange-500/10 transition-all uppercase tracking-tight"
             >
-              <Wand2 size={12} /> AIにおまかせ設定
+              <Wand2 size={10} /> AIにおまかせ設定
             </button>
           </div>
           <textarea
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="（例）初心者向けのNotion使い方。データベース機能を中心に、タスク管理のテンプレートの作り方を解説したい。"
-            className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-4 text-white placeholder-white/20 focus:outline-none focus:border-purple-500/50 transition-colors resize-none"
+            className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none font-serif"
           />
         </div>
 
@@ -257,23 +291,45 @@ function InputForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-bold text-gray-400">想定読者</label>
+          <label className="text-sm font-bold text-gray-400">誰に届けるか</label>
           <input
             type="text"
             value={targetAudience}
             onChange={(e) => setTargetAudience(e.target.value)}
             placeholder="（例）20代の若手社員"
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white placeholder-white/20 focus:outline-none focus:border-purple-500/50"
+            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-bold text-gray-400">記事の目的</label>
+          <label className="text-sm font-bold text-gray-400">この記事だけの価値</label>
           <input
             type="text"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             placeholder="（例）信頼獲得、LINE登録"
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white placeholder-white/20 focus:outline-none focus:border-purple-500/50"
+            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">独自の切り口・コンセプト</label>
+          <input
+            type="text"
+            value={differentiation}
+            onChange={(e) => setDifferentiation(e.target.value)}
+            placeholder="（例）競合にはない独自の視点や体験談"
+            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">目次の構成・補足</label>
+          <textarea
+            value={outlineSupplement}
+            onChange={(e) => setOutlineSupplement(e.target.value)}
+            placeholder="（例）具体的な成功事例と失敗から学んだこと"
+            className="w-full h-24 bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-white/10 focus:outline-none focus:border-orange-500/50 transition-colors resize-none"
           />
         </div>
       </div>
@@ -284,7 +340,7 @@ function InputForm({
           <select
             value={targetLength}
             onChange={(e) => setTargetLength(Number(e.target.value))}
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
+            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-orange-500/50 appearance-none transition-colors"
           >
             <option value={2500}>2,500文字（サクッと）</option>
             <option value={5000}>5,000文字（標準）</option>
@@ -297,7 +353,7 @@ function InputForm({
           <select
             value={tone}
             onChange={(e) => setTone(e.target.value)}
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
+            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-orange-500/50 appearance-none transition-colors"
           >
             <option value="やさしい">やさしい・親しみやすい</option>
             <option value="専門家">専門家・信頼感</option>
@@ -329,6 +385,8 @@ function InputForm({
             onChange={(e) => setCharacter(e.target.value)}
             className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
           >
+            <option value="note記事つくレッサーパンダ">note記事つくレッサーパンダ（マスコット）</option>
+            <option value="参考画像">参考画像（アップロードした画像）</option>
             <option value="指定なし">指定なし（風景・抽象のみ）</option>
             <option value="日本人女性">日本人女性（20代・ビジネス）</option>
             <option value="日本人女性_カジュアル">日本人女性（カジュアル）</option>
@@ -615,42 +673,33 @@ export default function Home() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
       {status === "idle" && (
-        <div className="animate-in fade-in zoom-in duration-500">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              あなたのノウハウを、<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">プロ級のnote記事</span>に。
-            </h2>
-            <p className="text-gray-400 max-w-md mx-auto">
-              テーマを入力するだけで、構成・執筆・画像生成・品質スコア評価までAIがワンストップで実行します。
+        <div className="animate-in fade-in slide-in-from-top-12 duration-1000">
+          <div className="mb-12 text-center">
+            <div className="inline-block px-4 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full text-[10px] text-orange-400 font-black mb-6 tracking-[0.3em] uppercase animate-pulse">
+              Red Panda AI Assistant
+            </div>
+            <h1 className="text-5xl md:text-7xl font-black text-white mb-6 tracking-tighter leading-none">
+              思考を <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500 drop-shadow-sm">一瞬</span> で価値に
+            </h1>
+            <p className="text-lg md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed font-serif italic">
+              "僕が君の代わりに、noteに最適な構成と執筆、そして画像までをプロデュースするよ！"
             </p>
           </div>
 
-          <h2 className="text-xl font-bold mb-4 text-white/70">記事作成の 3 Step</h2>
+          <h2 className="text-xl font-bold mb-4 text-white/70 flex items-center gap-2">
+            <span className="text-orange-500">🐾</span> パンダ執筆 3 Step
+          </h2>
           <StepCards onStart={() => setStatus("outline")} />
 
-          <div className="mt-12 p-6 glass-card rounded-[24px] border border-white/5 bg-white/5">
-            <h3 className="font-bold mb-4 text-sm text-gray-500">最近のアップデート</h3>
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                  <Sparkles size={12} className="text-purple-400" />
-                </div>
-                <p className="text-gray-300">参考画像（キャラクター等）の取り込みに対応しました。</p>
-              </div>
-              <div className="flex items-start gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                  <Check size={12} className="text-blue-400" />
-                </div>
-                <p className="text-gray-300">「3秒で伝わる」サムネイル最適化プロンプトを導入しました。</p>
-              </div>
-            </div>
-          </div>
+          <BrandFooter />
         </div>
       )}
 
       {status === "outline" && (
-        <InputForm onSubmit={handleGenerate} isGenerating={false} />
+        <>
+          <InputForm onSubmit={handleGenerate} isGenerating={false} />
+          <BrandFooter />
+        </>
       )}
 
       {(status === "writing" || status === "polish" || status === "scoring" || status === "image_prompt") && (
@@ -661,181 +710,199 @@ export default function Home() {
             <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/20"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/20"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-orange-500/30"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/30"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/30"></div>
                 </div>
-                <span className="text-xs font-mono text-white/30 ml-2">GENERATING_PREVIEW.md</span>
+                <span className="text-xs font-mono text-orange-400/50 ml-2 italic">PANDA_WRITING_SESSION.md</span>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-xs font-mono text-white/50">
                   {articleText.length.toLocaleString()} / {(inputs?.targetLength || 5000).toLocaleString()} chars
                 </div>
-                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300"
-                    style={{ width: `${Math.min(100, (articleText.length / (inputs?.targetLength || 5000)) * 100)}%` }}
-                  ></div>
-                </div>
               </div>
             </div>
-            <div className="h-48 overflow-y-auto font-mono text-xs md:text-sm text-gray-400 leading-relaxed scrollbar-hide">
-              <pre className="whitespace-pre-wrap font-sans">
-                {articleText || <span className="animate-pulse">Waiting for stream...</span>}
-                <span className="inline-block w-2 h-4 bg-purple-500 ml-1 animate-pulse align-middle"></span>
+            <div className="h-48 overflow-y-auto font-mono text-xs md:text-sm text-gray-300 leading-relaxed scrollbar-hide bg-orange-900/10 p-4 rounded-xl border border-orange-500/10">
+              <pre className="whitespace-pre-wrap font-sans leading-relaxed">
+                {articleText || <span className="animate-pulse text-orange-500">レッサーパンダが思考を文章に変換中...</span>}
+                <span className="inline-block w-2 h-4 bg-orange-500 ml-1 animate-pulse align-middle"></span>
               </pre>
             </div>
           </div>
+          <BrandFooter />
         </div>
       )}
 
       {status === "done" && (
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-8">
-          {/* Top Fixed Copy Button */}
           <button
             onClick={copyToClipboard}
-            className="w-full py-4 rounded-2xl bg-white text-blue-600 font-extrabold flex items-center justify-center gap-3 shadow-xl hover:scale-[1.02] transition-all border-2 border-blue-100"
+            className="w-full py-5 rounded-2xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-black flex items-center justify-center gap-3 shadow-2xl hover:scale-[1.02] active:scale-95 transition-all"
           >
-            <Copy size={20} /> 記事本文をコピー（noteに貼り付け）
+            <Copy size={20} /> 完成原稿をコピーして投稿準備完了！
           </button>
 
-          {/* Tab Navigation */}
           <div className="flex bg-white/5 p-1 rounded-2xl backdrop-blur-xl border border-white/10">
             <button
               onClick={() => setActiveTab("result")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "result" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "result" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
               <Sparkles size={16} /> 生成結果
             </button>
             <button
               onClick={() => setActiveTab("preview")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "preview" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "preview" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
-              <Eye size={16} /> noteプレビュー
+              <Eye size={16} /> プレビュー
             </button>
             <button
               onClick={() => setActiveTab("score")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "score" ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "score" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
               <BarChart3 size={16} /> 品質スコア
             </button>
           </div>
 
-          {activeTab === "result" && (
-            <div className="space-y-8 pb-10">
-              {/* Header Image Section */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-end">
-                  <h3 className="text-xl font-bold text-white/80">アイキャッチ画像</h3>
-                  <a href={generatedImage || "#"} download="eyecatch.png" className="flex items-center gap-2 px-4 py-2 bg-emerald-500 rounded-xl text-xs font-bold text-white hover:bg-emerald-600 transition-all">
-                    <Download size={14} /> ダウンロード
-                  </a>
-                </div>
-                {generatedImage && (
-                  <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group border-white/5">
-                    <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
-                      <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                      {/* Note-style Premium Overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end items-center pb-10 px-8 text-center">
-                        <div className="inline-block px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-[10px] text-white/80 font-bold mb-4 tracking-[0.2em] backdrop-blur-xl">
-                          FEATURED ARTICLE
+          <div className="max-w-4xl mx-auto">
+            {activeTab === "result" && (
+              <div className="space-y-8 pb-10">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <h3 className="text-xl font-bold text-white/80">アイキャッチ画像</h3>
+                    <a href={generatedImage || "#"} download="eyecatch.png" className="flex items-center gap-2 px-4 py-2 bg-orange-500 rounded-xl text-xs font-bold text-white hover:bg-orange-600 transition-all shadow-lg">
+                      <Download size={14} /> 保存
+                    </a>
+                  </div>
+                  {generatedImage && (
+                    <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
+                      <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
+                        <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-10 px-8 text-center">
+                          <h1 className="text-2xl md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
+                            {displayTitle}
+                          </h1>
                         </div>
-                        <h1 className="text-2xl md:text-3xl font-extrabold text-white leading-[1.3] tracking-tight drop-shadow-2xl" style={{
-                          textShadow: "0 4px 12px rgba(0,0,0,0.9)",
-                        }}>
-                          {displayTitle}
-                        </h1>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* Inline Image Section */}
-              <div className="space-y-4">
-                <h3 className="text-xl font-bold text-white/80">記事内画像（1枚）</h3>
-                {inlineImage ? (
-                  <div className="glass-card p-2 rounded-[24px] overflow-hidden border-white/5">
-                    <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
-                      <img src={inlineImage} alt="Inline" className="w-full h-full object-contain" />
-                      {/* Dynamic Heading Overlay for Inline */}
-                      <div className="absolute bottom-0 inset-x-0 bg-black/60 py-3 px-4 backdrop-blur-sm">
-                        <p className="text-center text-white text-sm font-bold truncate">1. {inlineHeading}</p>
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-white/80">記事内画像（解説図）</h3>
+                  {inlineImage ? (
+                    <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
+                      <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
+                        <img src={inlineImage} alt="Inline" className="w-full h-full object-contain" />
+                        <div className="absolute bottom-0 inset-x-0 bg-orange-950/80 py-3 px-4 backdrop-blur-sm border-t border-orange-500/30">
+                          <p className="text-center text-orange-100 text-sm font-bold truncate">Section Analysis: {inlineHeading}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="h-40 glass-card rounded-[24px] flex items-center justify-center text-white/20 text-sm italic">
-                    生成中または生成されませんでした
-                  </div>
-                )}
-              </div>
-
-              {/* Meta Description Section */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-end">
-                  <h3 className="text-xl font-bold text-white/80">メタディスクリプション</h3>
-                  <button onClick={() => { navigator.clipboard.writeText(metaDescription); alert("コピーしました"); }} className="px-4 py-2 bg-white/10 rounded-xl text-xs font-bold text-white/60 hover:bg-white/20 transition-all">コピー</button>
+                  ) : (
+                    <div className="h-40 glass-card rounded-[24px] flex items-center justify-center text-white/20 text-sm italic">
+                      思考の視覚化をスキップしました
+                    </div>
+                  )}
                 </div>
-                <div className="glass-card p-6 rounded-[24px] bg-black/40 text-sm leading-relaxed text-gray-400 border-white/5">
-                  {metaDescription}
-                </div>
-              </div>
 
-              {/* Prompt Backup */}
-              <div className="glass-card p-6 rounded-[24px] border-l-4 border-l-purple-500 bg-white/5">
-                <h3 className="font-bold mb-2">画像生成プロンプト</h3>
-                <div className="bg-black/30 p-4 rounded-xl text-[10px] font-mono text-gray-500 overflow-x-auto">
-                  {imagePrompt || "プロンプト生成中..."}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "preview" && (
-            <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500 pb-20">
-              {generatedImage && <img src={generatedImage} className="w-full aspect-video object-cover rounded-3xl shadow-2xl" />}
-              <div className="space-y-6">
-                <h1 className="text-4xl font-bold text-white leading-tight">{displayTitle}</h1>
-                <div className="flex gap-4 items-center border-b border-white/10 pb-6">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500"></div>
-                  <div className="text-sm">
-                    <div className="font-bold">AI Agent</div>
-                    <div className="text-white/40">2025.12.31 · 10 min read</div>
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-white/80">SNS用紹介文</h3>
+                  <div className="glass-card p-6 rounded-[24px] bg-black/40 text-sm italic leading-relaxed text-orange-200/60 border border-orange-500/10 font-serif">
+                    {metaDescription}
                   </div>
                 </div>
-                <div className="prose prose-invert max-w-none text-lg leading-relaxed text-gray-300">
-                  <pre className="whitespace-pre-wrap font-sans leading-relaxed">{articleText}</pre>
+              </div>
+            )}
+
+            {activeTab === "preview" && (
+              <div className="animate-in fade-in slide-in-from-right-4 duration-500 pb-20 rounded-[32px] overflow-hidden shadow-2xl border border-orange-200/20">
+                <div className="bg-gradient-to-r from-orange-100 to-red-100 p-4 flex items-center justify-between border-b border-orange-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🐾</span>
+                    <span className="text-orange-900 font-black text-xs tracking-tighter">note AI AGENT - Panda Preview Mode</span>
+                  </div>
+                  <div className="text-[10px] text-orange-700 font-bold opacity-50 uppercase tracking-widest">Original Creative Output</div>
+                </div>
+
+                <div className="bg-[#FAF7F2] p-8 md:p-12 space-y-12">
+                  {generatedImage && (
+                    <div className="relative group">
+                      <img src={generatedImage} className="w-full aspect-video object-cover rounded-2xl shadow-lg border-4 border-white" />
+                      <div className="absolute top-4 left-4 bg-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">Panda AI Illustration</div>
+                    </div>
+                  )}
+
+                  <div className="space-y-8 max-w-xl mx-auto">
+                    <h1 className="text-3xl md:text-5xl font-serif font-black text-gray-900 leading-[1.2] tracking-tight text-center md:text-left">
+                      {displayTitle}
+                    </h1>
+
+                    <div className="flex gap-4 items-center border-y border-orange-200/50 py-6">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-xl shadow-md border-2 border-white">
+                        🐾
+                      </div>
+                      <div>
+                        <div className="font-black text-gray-900 flex items-center gap-2 font-serif">
+                          note記事つくレッサーパンダ
+                          <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded-md">Official Agent</span>
+                        </div>
+                        <div className="text-gray-500 text-xs font-serif italic">2025.12.31 · 10 min read · Creative Commons</div>
+                      </div>
+                    </div>
+
+                    <div className="prose prose-stone max-w-none text-xl leading-[2.2] text-gray-800 font-serif">
+                      <div className="whitespace-pre-wrap break-words indent-4">
+                        {articleText.split('\n\n').map((para, i) => (
+                          <p key={i} className="mb-10 first-letter:text-3xl first-letter:font-black first-letter:text-orange-600">
+                            {para}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-20 pt-10 border-t-2 border-dashed border-orange-300 flex flex-col items-center text-center space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-white shadow-inner flex items-center justify-center text-3xl border-2 border-orange-100 animate-bounce">
+                        🐾
+                      </div>
+                      <p className="text-orange-900 font-black text-sm italic font-serif">
+                        "思考を価値に変えるお手伝い、完了しました！"<br />
+                        <span className="text-orange-600/60 not-italic text-xs">Generated by Note Red Panda Assistant</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {activeTab === "score" && score && (
-            <div className="glass-card p-8 rounded-[24px] animate-in fade-in slide-in-from-left-4 duration-500">
-              <ScoreMeter score={score.total} summary={score.summary} />
-              <div className="px-4">
-                <ScoreBars details={score.details} metrics={score.metrics} />
+            {activeTab === "score" && score && (
+              <div className="glass-card p-8 rounded-[24px] animate-in fade-in slide-in-from-left-4 duration-500 border border-orange-500/20">
+                <div className="flex justify-center mb-8">
+                  <div className="w-20 h-20 rounded-2xl bg-orange-500/10 flex items-center justify-center text-4xl border border-orange-500/20 shadow-inner">🏆</div>
+                </div>
+                <ScoreMeter score={score.total} summary={score.summary} />
+                <div className="px-4">
+                  <ScoreBars details={score.details} metrics={score.metrics} />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Bottom Navigation */}
           <div className="pt-10 flex flex-col items-center gap-6">
             <div className="flex gap-4">
               <button
                 onClick={() => handleGenerate(inputs)}
-                className="px-10 py-4 rounded-full bg-white/5 hover:bg-white/10 text-white font-bold transition-all flex items-center gap-3 border border-white/10"
+                className="px-10 py-5 rounded-full bg-white/5 hover:bg-white/10 text-white font-bold transition-all flex items-center gap-3 border border-white/10 shadow-lg"
               >
-                <RotateCcw size={18} /> 再試行
+                <RotateCcw size={18} /> もう一度プロデュース
               </button>
               <button
                 onClick={() => setStatus("outline")}
-                className="px-10 py-4 rounded-full bg-gradient-primary text-white font-extrabold transition-all flex items-center gap-3 shadow-2xl shadow-purple-500/20"
+                className="px-10 py-5 rounded-full bg-gradient-to-r from-orange-400 to-red-500 text-white font-black transition-all flex items-center gap-3 shadow-2xl shadow-orange-500/20 active:scale-95"
               >
-                <Sparkles size={18} /> 最初から作る
+                <Sparkles size={18} /> 最初から別の記事を
               </button>
             </div>
+            <BrandFooter />
           </div>
         </div>
       )}
