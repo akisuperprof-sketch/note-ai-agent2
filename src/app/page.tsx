@@ -220,19 +220,18 @@ function InputForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic }),
       });
-      if (!res.ok) throw new Error("Failed to recommend");
       const d = await res.json();
-      setTargetAudience(d.targetAudience);
-      setGoal(d.goal);
-      setDifferentiation(d.differentiation);
-      setOutlineSupplement(d.outlineSupplement);
+      if (!res.ok) throw new Error(d.error || "Failed to recommend");
+
+      setTargetAudience(d.targetAudience || "");
+      setGoal(d.goal || "");
+      setDifferentiation(d.differentiation || "");
+      setOutlineSupplement(d.outlineSupplement || "");
     } catch (e) {
       console.error(e);
-      // Fallback
-      setTargetAudience("20代の若手社員");
-      setGoal("信頼獲得、LINE登録");
-      setDifferentiation("競合にはない独自の視点や体験談");
-      setOutlineSupplement("具体的な成功事例と失敗から学んだこと");
+      const err = e as Error;
+      alert(`AIの提案に失敗しました: ${err.message}\nしばらく時間をおいて試すか、手動で入力してください。`);
+      // No silent fallback to generic data - keeps the user informed
     } finally {
       setIsRecommending(false);
     }
