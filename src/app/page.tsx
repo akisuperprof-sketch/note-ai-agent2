@@ -124,9 +124,9 @@ function StepCards({ onStart }: { onStart: () => void }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       {[
-        { num: 1, title: "記事の独自設計", desc: "独自の切り口を入力" },
-        { num: 2, title: "自動プロデュース", desc: "AIが執筆・画像生成" },
-        { num: 3, title: "貼付して完了", desc: "noteへ出力して投稿" }
+        { num: 1, title: "あなたの役割", desc: "書きたいこと・ノウハウの指示" },
+        { num: 2, title: "パンダの役割", desc: "構成・執筆・画像生成を代行" },
+        { num: 3, title: "完成パッケージ", desc: "コピペするだけで投稿完了" }
       ].map((step) => (
         <div key={step.num} onClick={onStart} className="glass-card p-6 rounded-[24px] cursor-pointer hover:bg-white/10 transition-colors group">
           <div className="flex items-center justify-between mb-4">
@@ -204,13 +204,32 @@ function InputForm({
     }
   };
 
-  const handleAutoRecommend = () => {
-    setTargetAudience("20代の若手社員");
-    setGoal("信頼獲得、LINE登録");
-    setTargetLength(2500);
-    setTone("やさしい");
-    setDifferentiation("競合にはない独自の視点や体験談");
-    setOutlineSupplement("具体的な成功事例と失敗から学んだこと");
+  const handleAutoRecommend = async () => {
+    if (!topic) {
+      alert("まずは「記事テーマ・ノウハウメモ」を入力してね！");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      if (!res.ok) throw new Error("Failed to recommend");
+      const d = await res.json();
+      setTargetAudience(d.targetAudience);
+      setGoal(d.goal);
+      setDifferentiation(d.differentiation);
+      setOutlineSupplement(d.outlineSupplement);
+    } catch (e) {
+      console.error(e);
+      // Fallback
+      setTargetAudience("20代の若手社員");
+      setGoal("信頼獲得、LINE登録");
+      setDifferentiation("競合にはない独自の視点や体験談");
+      setOutlineSupplement("具体的な成功事例と失敗から学んだこと");
+    }
   };
 
   const handleSubmit = () => {
@@ -709,7 +728,7 @@ export default function Home() {
         const response = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, isRetry: data._isRetry }),
         });
 
         if (!response.ok) {
@@ -731,6 +750,18 @@ export default function Home() {
             const chunk = decoder.decode(value, { stream: true });
             fullText += chunk;
             setArticleText(prev => prev + chunk);
+          }
+        }
+
+        // --- Length Check & Retry ---
+        const charCount = fullText.length;
+        const minTarget = (data.targetLength || 5000) * 0.7; // 70% threshold
+        if (charCount < minTarget) {
+          await addLog(`文字数が目標に届きませんでした (${charCount}字)。再試行します...`, 1000);
+          // Simple one-time retry or recursion (using a flag to avoid infinite loops)
+          if (!data._isRetry) {
+            handleGenerate({ ...data, _isRetry: true });
+            return;
           }
         }
 
@@ -888,11 +919,12 @@ export default function Home() {
             <div className="inline-block px-4 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full text-[10px] text-orange-400 font-black mb-6 tracking-[0.3em] uppercase animate-pulse">
               Red Panda AI Assistant
             </div>
-            <h1 className="text-5xl md:text-7xl font-black text-white mb-6 tracking-tighter leading-none">
+            <h1 className="text-5xl md:text-7xl font-black text-white mb-6 tracking-tighter leading-none px-4">
               思考を <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500 drop-shadow-sm">一瞬</span> で価値に
             </h1>
-            <p className="text-lg md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed font-serif italic">
-              "僕が君の代わりに、noteに最適な構成と執筆、そして画像までをプロデュースするよ！"
+            <p className="text-base md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed font-serif italic px-6">
+              "君のやることは、ノウハウや書きたいことの指示だけ。<br className="hidden md:block" />
+              あとの構成・執筆・画像生成は僕が全部プロデュースするよ！"
             </p>
             <div className="mt-8">
               <button
@@ -963,32 +995,32 @@ export default function Home() {
       )}
 
       {status === "done" && (
-        <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-8">
+        <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6 md:space-y-8">
           <button
             onClick={copyToClipboard}
-            className="w-full py-5 rounded-2xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-black flex items-center justify-center gap-3 shadow-2xl hover:scale-[1.02] active:scale-95 transition-all"
+            className="w-full py-4 md:py-5 rounded-2xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-black flex items-center justify-center gap-3 shadow-2xl hover:scale-[1.02] active:scale-95 transition-all text-sm md:text-base"
           >
-            <Copy size={20} /> 完成原稿をコピーして投稿準備完了！
+            <Copy size={18} /> 完成原稿をコピー！
           </button>
 
-          <div className="flex bg-white/5 p-1 rounded-2xl backdrop-blur-xl border border-white/10">
+          <div className="flex bg-white/5 p-1 rounded-2xl backdrop-blur-xl border border-white/10 overflow-x-auto">
             <button
               onClick={() => setActiveTab("result")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "result" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 whitespace-nowrap flex items-center justify-center gap-2 py-3 px-2 rounded-xl font-bold transition-all text-[10px] md:text-xs", activeTab === "result" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
-              <Sparkles size={16} /> 生成結果
+              <Sparkles size={14} /> 生成結果
             </button>
             <button
               onClick={() => setActiveTab("preview")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "preview" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 whitespace-nowrap flex items-center justify-center gap-2 py-3 px-2 rounded-xl font-bold transition-all text-[10px] md:text-xs", activeTab === "preview" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
-              <Eye size={16} /> プレビュー
+              <Eye size={14} /> スマホ風プレビュー
             </button>
             <button
               onClick={() => setActiveTab("score")}
-              className={cn("flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all text-sm", activeTab === "score" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
+              className={cn("flex-1 whitespace-nowrap flex items-center justify-center gap-2 py-3 px-2 rounded-xl font-bold transition-all text-[10px] md:text-xs", activeTab === "score" ? "bg-white text-orange-600 shadow-xl" : "text-white/40 hover:text-white")}
             >
-              <BarChart3 size={16} /> 品質スコア
+              <BarChart3 size={14} /> 品質スコア
             </button>
           </div>
 
@@ -1101,7 +1133,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="prose prose-stone max-w-none text-xl leading-[2.2] text-gray-800 font-serif">
+                    <div className="prose prose-stone max-w-none text-base md:text-xl leading-relaxed md:leading-[2.2] text-gray-800 font-serif">
                       <div className="whitespace-pre-wrap break-words indent-4">
                         {articleText.split('\n\n').map((para, i) => {
                           const isHeading = para.startsWith('##');
@@ -1109,14 +1141,14 @@ export default function Home() {
                           const associatedImage = isHeading ? inlineImages.find(img => img.heading === headingText) : null;
 
                           return (
-                            <div key={i} className="mb-10">
-                              <p className={cn(isHeading ? "text-2xl font-black text-gray-900 mt-16 mb-8" : "mb-10 first-letter:text-3xl first-letter:font-black first-letter:text-orange-600")}>
+                            <div key={i} className="mb-6 md:mb-10">
+                              <p className={cn(isHeading ? "text-xl md:text-2xl font-black text-gray-900 mt-10 md:mt-16 mb-6 md:mb-8" : "mb-6 md:mb-10 first-letter:text-2xl md:first-letter:text-3xl first-letter:font-black first-letter:text-orange-600 font-medium")}>
                                 {para}
                               </p>
                               {associatedImage && (
-                                <div className="my-8 rounded-2xl overflow-hidden border-4 border-white shadow-xl rotate-1">
+                                <div className="my-6 md:my-8 rounded-xl md:rounded-2xl overflow-hidden border-2 md:border-4 border-white shadow-xl rotate-0 md:rotate-1">
                                   <img src={associatedImage.url} alt={headingText} className="w-full h-auto" />
-                                  <div className="bg-orange-50 p-3 text-center text-xs font-bold text-orange-800 border-t border-orange-100">
+                                  <div className="bg-orange-50 p-2 md:p-3 text-center text-[10px] md:text-xs font-bold text-orange-800 border-t border-orange-100">
                                     {headingText} - Visualization
                                   </div>
                                 </div>

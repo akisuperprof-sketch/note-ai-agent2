@@ -31,7 +31,8 @@ export async function POST(req: NextRequest) {
             targetLength = 5000,
             tone = "やさしい",
             differentiation,
-            outlineSupplement
+            outlineSupplement,
+            isRetry
         } = body;
 
         const genAI = new GoogleGenerativeAI(apiKey);
@@ -43,6 +44,9 @@ export async function POST(req: NextRequest) {
         【執筆のスタンス（僕の約束）】
         僕は「思考を価値に変える」お手伝いをするパートナーだよ。
         読者が最後まで楽しく読めて、かつ行動したくなるような記事を一緒に作ろう！
+
+        ${isRetry ? `【重要：加筆の依頼】
+        前回の出力では文字数が不足していました。今回は、各見出しの内容をより深掘りし、具体的な事例や詳細な解説を大幅に増やして、必ず目標文字数（${targetLength}文字）に近づけるように、出し惜しみせず執筆してください。` : ""}
 
         【禁止事項（重要）】
         1. 本文中に「こんにちは」「レッサーパンダです」といった **AI自身の自己紹介や挨拶、メタな発言（執筆の宣言など）は一切含めないでください**。
