@@ -190,10 +190,11 @@ function InputForm({
     const d = {
       topic, targetAudience, goal, targetLength, tone,
       differentiation, outlineSupplement, visualStyle, character,
-      referenceImage, strictCharacter, showEyecatchTitle
+      // referenceImage: Excluded to save space
+      strictCharacter, showEyecatchTitle
     };
     localStorage.setItem("panda_last_inputs", JSON.stringify(d));
-  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, referenceImage, strictCharacter, showEyecatchTitle]);
+  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, strictCharacter, showEyecatchTitle]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -830,8 +831,15 @@ function HistoryList({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[10px] font-mono text-white/30">{item.timestamp}</span>
-                      <button onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }} className="p-1.5 text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
-                        <X size={14} />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm('本当にこの履歴を削除しますか？')) deleteItem(item.id);
+                        }}
+                        className="p-2 bg-white/5 hover:bg-red-500/20 rounded-full text-white/40 hover:text-red-400 transition-all border border-transparent hover:border-red-500/30"
+                        title="この履歴を削除"
+                      >
+                        <X size={16} />
                       </button>
                     </div>
                     <h3 className="text-sm font-bold text-white mb-1 truncate">{item.displayTitle}</h3>
@@ -889,10 +897,58 @@ export default function Home() {
       id: Math.random().toString(36).substring(7),
       timestamp: new Date().toLocaleString("ja-JP"),
     };
-    const saved = localStorage.getItem("panda_history");
-    const history = saved ? JSON.parse(saved) : [];
-    const updated = [newItem, ...history].slice(0, 10); // Keep last 10
-    localStorage.setItem("panda_history", JSON.stringify(updated));
+
+    try {
+      // Optimize: Remove heavy reference image from history inputs to save space
+      const safeInputs = { ...item.inputs };
+      if (safeInputs.referenceImage && safeInputs.referenceImage.length > 500) {
+        safeInputs.referenceImage = null;
+      }
+      const optimizedNewItem = { ...newItem, inputs: safeInputs };
+
+      const saved = localStorage.getItem("panda_history");
+      const history = saved ? JSON.parse(saved) : [];
+
+      // Limit to last 20 items (increased from 10 since we are optimizing size)
+      const updated = [optimizedNewItem, ...history].slice(0, 20);
+
+      localStorage.setItem("panda_history", JSON.stringify(updated));
+    } catch (e: any) {
+      console.warn("History save warning:", e);
+
+      // Smart cleanup on error
+      try {
+        const safeInputs = { ...item.inputs };
+        if (safeInputs.referenceImage) safeInputs.referenceImage = null;
+        const retryItem = { ...newItem, inputs: safeInputs };
+
+        let saved = localStorage.getItem("panda_history");
+        let history = saved ? JSON.parse(saved) : [];
+        let savedSuccess = false;
+
+        while (history.length > 0 && !savedSuccess) {
+          history.pop(); // Remove oldest
+          try {
+            const retryUpdated = [retryItem, ...history];
+            localStorage.setItem("panda_history", JSON.stringify(retryUpdated));
+            savedSuccess = true;
+          } catch (err) {
+            // Continue cleanup
+          }
+        }
+
+        if (!savedSuccess) {
+          try {
+            // Last resort: Save only the new one
+            localStorage.setItem("panda_history", JSON.stringify([retryItem]));
+          } catch (finalErr) {
+            console.error("Critical: Storage full", finalErr);
+          }
+        }
+      } catch (cleanupErr) {
+        console.error("Cleanup logic failed", cleanupErr);
+      }
+    }
   };
 
   const restoreHistory = (item: HistoryItem) => {
