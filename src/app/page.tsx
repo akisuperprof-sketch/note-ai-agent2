@@ -630,10 +630,55 @@ function HistoryList({
     }
   }, []);
 
-  const deleteItem = (id: string) => {
-    const updated = items.filter(i => i.id !== id);
-    setItems(updated);
-    localStorage.setItem("panda_history", JSON.stringify(updated));
+  const saveToHistory = (itemData: Omit<HistoryItem, "id" | "timestamp">) => {
+    const newItem: HistoryItem = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleString(),
+      ...itemData
+    };
+
+    // Attempt to save with smart cleaning
+    try {
+      const current = items;
+      const updated = [newItem, ...current]; // Newest first
+      localStorage.setItem("panda_history", JSON.stringify(updated));
+      setItems(updated);
+    } catch (e: any) {
+      if (e.name === 'QuotaExceededError') {
+        console.warn("Storage quota exceeded. Attempting to free up space...");
+
+        let reducedItems = [...items];
+        let saved = false;
+
+        // Iteratively remove oldest items until save succeeds
+        while (reducedItems.length > 0 && !saved) {
+          reducedItems.pop(); // Remove oldest
+          try {
+            const retryUpdated = [newItem, ...reducedItems];
+            localStorage.setItem("panda_history", JSON.stringify(retryUpdated));
+            setItems(retryUpdated);
+            saved = true;
+            console.log("Successfully saved after clearing old history.");
+          } catch (retryError) {
+            // Continue loop
+          }
+        }
+
+        if (!saved) {
+          // Fallback: Clear all and save only new item
+          try {
+            localStorage.setItem("panda_history", JSON.stringify([newItem]));
+            setItems([newItem]);
+          } catch (finalError) {
+            console.error("Critical: Cannot save even a single item.", finalError);
+            alert("ブラウザの保存容量がいっぱいです。履歴を保存できませんでした。");
+          }
+        }
+
+      } else {
+        console.error("Failed to save history", e);
+      }
+    }
   };
 
   return (
