@@ -9,32 +9,34 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Topic is required" }, { status: 400 });
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || "");
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        if (!apiKey) {
+            return NextResponse.json({ error: "API Key is missing" }, { status: 500 });
+        }
+
+        const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `
 あなたはプロのnote編集者エンジニアです。
-ユーザーが入力した「記事テーマ・ノウハウメモ」に基づいて、最適な記事設計（誰に届けるか、この記事だけの価値、独自の切り口、目次の構成補足）を提案してください。
+ユーザーが入力した「記事テーマ・ノウハウメモ」に基づいて、読者が思わずクリックしたくなるような、鋭い視点の記事設計を提案してください。
+
+【重要】
+- 汎用的で抽象的な回答は避けてください。
+- 「誰に届けるか」は、そのテーマに特有の具体的な悩みを持つ層を絞り込んでください。
+- 例：テーマが「カレー」なら「20代会社員」ではなく「スパイスから凝りたいが時短も重視する独身男性」など。
 
 【入力されたテーマ】
 ${topic}
 
 【出力形式】
-JSON形式のみで出力してください。
+JSON形式のみで出力してください。Markdownのコードブロック（\`\`\`json ... \`\`\`）で囲んでください。
 
 【出力項目】
 - targetAudience: 誰に届けるか（具体的かつ切実な悩みを持つ層）
-- goal: この記事だけの価値（読了後のベネフィット）
-- differentiation: 独自の切り口・コンセプト（他記事との差別化ポイント）
-- outlineSupplement: 目次の構成・補足（具体的な構成案や追加すべき要素）
-
-例:
-{
-  "targetAudience": "...",
-  "goal": "...",
-  "differentiation": "...",
-  "outlineSupplement": "..."
-}
+- goal: この記事だけの価値（読了後の具体的ベネフィット・読後の行動）
+- differentiation: 独自の切り口・コンセプト（競合記事にはない、あなたならではのユニークな視点）
+- outlineSupplement: 目次の構成・補足（記事の骨子となる具体的な4〜5つのポイント）
 `;
 
         const result = await model.generateContent(prompt);

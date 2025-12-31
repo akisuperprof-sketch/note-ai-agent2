@@ -160,6 +160,7 @@ function InputForm({
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [strictCharacter, setStrictCharacter] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRecommending, setIsRecommending] = useState(false);
 
   // Load persistence
   useEffect(() => {
@@ -210,6 +211,7 @@ function InputForm({
       return;
     }
 
+    setIsRecommending(true);
     try {
       const res = await fetch("/api/recommend", {
         method: "POST",
@@ -229,6 +231,8 @@ function InputForm({
       setGoal("信頼獲得、LINE登録");
       setDifferentiation("競合にはない独自の視点や体験談");
       setOutlineSupplement("具体的な成功事例と失敗から学んだこと");
+    } finally {
+      setIsRecommending(false);
     }
   };
 
@@ -260,9 +264,23 @@ function InputForm({
             </label>
             <button
               onClick={handleAutoRecommend}
-              className="text-[10px] bg-white/5 text-orange-400 border border-orange-500/30 px-3 py-1 rounded-full flex items-center gap-1 font-bold hover:bg-orange-500/10 transition-all uppercase tracking-tight"
+              disabled={isRecommending}
+              className={cn(
+                "text-[10px] border px-3 py-1 rounded-full flex items-center gap-1 font-bold transition-all uppercase tracking-tight",
+                isRecommending
+                  ? "bg-orange-500/20 text-orange-200 border-orange-500/50 animate-pulse"
+                  : "bg-white/5 text-orange-400 border-orange-500/30 hover:bg-orange-500/10"
+              )}
             >
-              <Wand2 size={10} /> AIにおまかせ設定
+              {isRecommending ? (
+                <>
+                  <RotateCcw size={10} className="animate-spin" /> 分析中...
+                </>
+              ) : (
+                <>
+                  <Wand2 size={10} /> AIにおまかせ設定
+                </>
+              )}
             </button>
           </div>
           <textarea
