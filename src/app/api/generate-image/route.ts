@@ -23,9 +23,13 @@ export async function POST(req: NextRequest) {
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
-                const subjectSetting = character === "指定なし" ? "No specific character. Focus on environment, landscape, or symbolic objects." : character;
+                let subjectSetting = character;
+                if (character === "指定なし") {
+                    subjectSetting = referenceImage ? "The specific character and style from the attached reference image." : "No specific character. Focus on environment, landscape, or symbolic objects.";
+                }
+
                 const strictInstruction = strictCharacter
-                    ? "STRICTLY prioritize the original character's features, clothing, and art style from the provided reference image. Do not deviate."
+                    ? "STRICTLY prioritize the original character's features, clothing, and art style from the provided reference image. THE CHARACTER IN THE IMAGE IS THE MAIN SUBJECT."
                     : "Use the reference image as a loose guide for style and vibes, but feel free to prioritize the topic's essence.";
 
                 const promptEngineering = `
@@ -38,13 +42,13 @@ export async function POST(req: NextRequest) {
             - Visual Style: ${visualStyle || "Modern/Illustrative"}
             - Main Subject: ${subjectSetting}
             ${referenceImage ? `- Character/Style Reference: ${strictInstruction}` : ""}
-            - Design Detail: If a character is present, use a clean "sticker-style" with a thick white outline. If the topic involves a workflow or multiple tools, connect them with thin glowing lines or icons floating around the subject.
+            - Design Detail: ${strictCharacter ? "Center the character from the reference image." : "If a character is present, use a clean sticker-style."} If the topic involves a workflow, connect elements with thin glowing lines.
             - Atmosphere: ${title?.toLowerCase().includes("隠れ家") || title?.toLowerCase().includes("カフェ") ? "Cozy, quiet, hidden oasis, morning or warmth" : "Cinematic and appropriate for the title"}
             - Composition: High contrast, central focal point, 16:9 widescreen, clean and organized.
 
             【Output Rules】
             - STRICTLY NO TEXT, NO LETTERS.
-            - Focus on lighting, color palette, and specific symbolic details.
+            - Provide a detailed visual description of the scene including the character if applicable.
             - Max 40 words. Return ONLY English text.
           `;
 
@@ -66,6 +70,19 @@ export async function POST(req: NextRequest) {
         const errors: any[] = [];
 
         // 2. Call Image Generation Model (Multimodal v1beta approach)
+        const parts: any[] = [{ text: imagePrompt }];
+        if (referenceImage) {
+            const match = referenceImage.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (match) {
+                parts.push({
+                    inlineData: {
+                        mimeType: match[1],
+                        data: match[2]
+                    }
+                });
+            }
+        }
+
         const modelsToTry = [
             "gemini-3-pro-image-preview",
             "gemini-2.5-flash-image",
@@ -78,12 +95,8 @@ export async function POST(req: NextRequest) {
             // Variations of request bodies to ensure compatibility with preview models
             const requestVariations = [
                 {
-                    contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+                    contents: [{ role: "user", parts }],
                     generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "16:9" } }
-                },
-                {
-                    contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
-                    generationConfig: { response_modalities: ["IMAGE"], image_config: { aspect_ratio: "16:9" } }
                 }
             ];
 
