@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { title, articleText, promptOverride, visualStyle, character, referenceImage } = await req.json();
+        const { title, articleText, promptOverride, visualStyle, character, referenceImage, strictCharacter } = await req.json();
 
         let imagePrompt = promptOverride;
 
@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
                 const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
                 const subjectSetting = character === "指定なし" ? "No specific character. Focus on environment, landscape, or symbolic objects." : character;
+                const strictInstruction = strictCharacter
+                    ? "STRICTLY prioritize the original character's features, clothing, and art style from the provided reference image. Do not deviate."
+                    : "Use the reference image as a loose guide for style and vibes, but feel free to prioritize the topic's essence.";
 
                 const promptEngineering = `
             You are a Visual Art Director. Based on the Article Title below, describe ONE singular, powerful visual scene (WITHOUT any text/letters) that captures the ATMOSPHERE and ESSENCE of the topic.
@@ -33,14 +36,14 @@ export async function POST(req: NextRequest) {
 
             【Visual Strategy】
             - Visual Style: ${visualStyle || "Modern/Illustrative"}
-            - Focus: ${subjectSetting}
-            - Atmosphere: ${title?.includes("隠れ家") || title?.includes("カフェ") ? "Cozy, quiet, hidden oasis, morning or warm lighting" : "Consistent with the title's vibe"}
-            ${referenceImage ? "- Character/Style Reference: Follow the appearance and style of the attached image." : ""}
-            - Thumbail Rule: High contrast, one clear focal point, 16:9 cinematic shot.
+            - Main Subject: ${subjectSetting}
+            ${referenceImage ? `- Character/Style Reference: ${strictInstruction}` : ""}
+            - Atmosphere: ${title?.toLowerCase().includes("隠れ家") || title?.toLowerCase().includes("カフェ") ? "Cozy, quiet, hidden oasis, morning or warmth" : "Cinematic and appropriate for the title"}
+            - Composition: High contrast, central focal point, 16:9 widescreen.
 
             【Output Rules】
             - STRICTLY NO TEXT, NO LETTERS.
-            - Focus on sensory details: light, shadow, texture, color.
+            - Focus on lighting, color palette, and specific symbolic details.
             - Max 40 words. Return ONLY English text.
           `;
 

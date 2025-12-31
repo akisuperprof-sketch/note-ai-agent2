@@ -128,12 +128,13 @@ function InputForm({
   const [topic, setTopic] = useState("");
   const [targetAudience, setTargetAudience] = useState("");
   const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(5000);
+  const [targetLength, setTargetLength] = useState(2500);
   const [tone, setTone] = useState("やさしい");
   const [differentiation, setDifferentiation] = useState("");
-  const [visualStyle, setVisualStyle] = useState("写真リアル");
+  const [visualStyle, setVisualStyle] = useState("アニメ塗り");
   const [character, setCharacter] = useState("指定なし");
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [strictCharacter, setStrictCharacter] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,7 +151,7 @@ function InputForm({
   const handleAutoRecommend = () => {
     setTargetAudience("20代の若手社員");
     setGoal("信頼獲得、LINE登録");
-    setTargetLength(5000);
+    setTargetLength(2500);
     setTone("やさしい");
     setDifferentiation("競合にはない独自の視点や体験談");
   };
@@ -159,7 +160,8 @@ function InputForm({
     if (!topic) return;
     onSubmit({
       topic, targetAudience, goal, targetLength, tone,
-      differentiation, visualStyle, character, referenceImage
+      differentiation, visualStyle, character, referenceImage,
+      strictCharacter
     });
   };
 
@@ -229,6 +231,28 @@ function InputForm({
             />
           </div>
         </div>
+
+        {/* Strict Character Toggle */}
+        {referenceImage && (
+          <div
+            className="flex items-center justify-between p-3 rounded-xl bg-purple-500/5 border border-purple-500/10 cursor-pointer hover:bg-purple-500/10 transition-colors"
+            onClick={() => setStrictCharacter(!strictCharacter)}
+          >
+            <div className="flex flex-col">
+              <span className="text-sm font-bold text-purple-300">参考キャラを必須にする</span>
+              <span className="text-[10px] text-purple-300/60 font-medium">ONにすると、AIがこの画像の特徴を強力に守ります</span>
+            </div>
+            <div className={cn(
+              "w-12 h-6 rounded-full relative transition-colors duration-300",
+              strictCharacter ? "bg-purple-500" : "bg-white/10"
+            )}>
+              <div className={cn(
+                "absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300",
+                strictCharacter ? "left-7" : "left-1"
+              )} />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -262,7 +286,7 @@ function InputForm({
             onChange={(e) => setTargetLength(Number(e.target.value))}
             className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-purple-500/50 appearance-none"
           >
-            <option value={3000}>3,000文字（サクッと）</option>
+            <option value={2500}>2,500文字（サクッと）</option>
             <option value={5000}>5,000文字（標準）</option>
             <option value={8000}>8,000文字（長編）</option>
             <option value={10000}>10,000文字（網羅）</option>
