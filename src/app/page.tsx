@@ -735,8 +735,14 @@ export default function Home() {
                   <div className="glass-card p-2 rounded-[24px] overflow-hidden relative group border-white/5">
                     <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                       <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-24 pb-6 px-6 text-center">
-                        <h1 className="text-lg md:text-xl font-bold text-white leading-relaxed" style={{ textShadow: "0 2px 10px rgba(0,0,0,1)" }}>
+                      {/* Note-style Premium Overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end items-center pb-10 px-8 text-center">
+                        <div className="inline-block px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-[10px] text-white/80 font-bold mb-4 tracking-[0.2em] backdrop-blur-xl">
+                          FEATURED ARTICLE
+                        </div>
+                        <h1 className="text-2xl md:text-3xl font-extrabold text-white leading-[1.3] tracking-tight drop-shadow-2xl" style={{
+                          textShadow: "0 4px 12px rgba(0,0,0,0.9)",
+                        }}>
                           {displayTitle}
                         </h1>
                       </div>

@@ -38,8 +38,9 @@ export async function POST(req: NextRequest) {
             - Visual Style: ${visualStyle || "Modern/Illustrative"}
             - Main Subject: ${subjectSetting}
             ${referenceImage ? `- Character/Style Reference: ${strictInstruction}` : ""}
+            - Design Detail: If a character is present, use a clean "sticker-style" with a thick white outline. If the topic involves a workflow or multiple tools, connect them with thin glowing lines or icons floating around the subject.
             - Atmosphere: ${title?.toLowerCase().includes("隠れ家") || title?.toLowerCase().includes("カフェ") ? "Cozy, quiet, hidden oasis, morning or warmth" : "Cinematic and appropriate for the title"}
-            - Composition: High contrast, central focal point, 16:9 widescreen.
+            - Composition: High contrast, central focal point, 16:9 widescreen, clean and organized.
 
             【Output Rules】
             - STRICTLY NO TEXT, NO LETTERS.
