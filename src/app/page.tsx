@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
+import { NoteJob } from "@/lib/server/jobs";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -1045,50 +1046,77 @@ export default function Home() {
     return { safe: true };
   };
 
+  const [jobs, setJobs] = useState<NoteJob[]>([]);
+
+  const fetchJobs = async () => {
+    if (appMode !== "development") return;
+    try {
+      const res = await fetch(`/api/dev/note-jobs?mode=${appMode}`);
+      if (res.ok) {
+        const data = await res.ok ? await res.json() : [];
+        setJobs(Array.isArray(data) ? data.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch jobs", e);
+    }
+  };
+
   const handleDraftPost = async () => {
-    // Create logical Article ID (hash-like)
-    const articleId = displayTitle ? btoa(encodeURIComponent(displayTitle)).substring(0, 12) : "unknown_id";
+    // 記事ID（タイトルから生成）とリクエストID（重複防止キー）
+    const articleId = displayTitle ? btoa(encodeURIComponent(displayTitle)).substring(0, 12) : `art_${Date.now()}`;
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
     // Safety Check
     const safety = checkSafetyLock(articleId);
     if (!safety.safe) {
       setPostStatus("stopped");
       setPostLogs(prev => [...prev, `[STOP] 安全装置作動: ${safety.reason}`]);
-      alert(`安全装置が作動しました: ${safety.reason}`);
       return;
     }
 
-    if (!confirm("【開発モード検証】\nnoteへ「下書き」保存を実行しますか？\n（実際にはモックAPIが呼ばれます）")) return;
+    if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※.secret/note_session.jsonが必要です")) return;
 
     setPostStatus("posting");
-    setPostLogs(prev => [...prev, `[START] 下書き保存プロセス開始 (ID: ${articleId})`]);
+    setPostLogs(prev => [`[START] 下書き保存開始 (ArticleID: ${articleId})`]);
 
     try {
-      // Simulate API Call Time
-      await new Promise(r => setTimeout(r, 1500));
+      const res = await fetch("/api/dev/note-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          article_id: articleId,
+          request_id: requestId,
+          title: displayTitle,
+          body: articleText,
+          tags: hashtags,
+          mode: appMode
+        }),
+      });
 
-      // Mock Verification of Fields
-      const payload = {
-        article_id: articleId,
-        mode: appMode,
-        title: displayTitle,
-        body: articleText,
-        created_at: new Date().toISOString(),
-        posted_at: null // Draft
-      };
+      const data = await res.json();
 
-      console.log("Mock Note Payload:", payload); // Debug only in console
-
-      // Success
-      setPostStatus("success");
-      setPostedArticles(prev => new Set(prev).add(articleId));
-      setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`, `[INFO] 1記事1回制限によりロックされました`]);
-
+      if (res.ok && data.status === "success") {
+        setPostStatus("success");
+        setPostedArticles(prev => new Set(prev).add(articleId));
+        setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`, `URL: ${data.note_url || 'N/A'}`]);
+        alert("noteへの下書き保存に成功しました！");
+      } else {
+        setPostStatus("error");
+        const msg = data.error_message || data.error || "詳細不明のエラー";
+        setPostLogs(prev => [...prev, `[ERROR] ${msg}`, `Step: ${data.last_step || 'unknown'}`]);
+      }
+      fetchJobs(); // 履歴更新
     } catch (e) {
       setPostStatus("error");
-      setPostLogs(prev => [...prev, `[ERROR] 投稿処理失敗`]);
+      setPostLogs(prev => [...prev, `[ERROR] 通信エラーが発生しました`]);
     }
   };
+
+  useEffect(() => {
+    if (appMode === "development") {
+      fetchJobs();
+    }
+  }, [appMode]);
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -1547,14 +1575,12 @@ export default function Home() {
 
           <div className="glass-card p-4 rounded-[20px] bg-black/40 border border-white/10 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-orange-500/30"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/30"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/30"></div>
-                </div>
-                <span className="text-xs font-mono text-orange-400/50 ml-2 italic">PANDA_WRITING_SESSION.md</span>
+              <div className="flex gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-orange-500/30"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500/30"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/30"></div>
               </div>
+              <span className="text-xs font-mono text-orange-400/50 ml-2 italic">PANDA_WRITING_SESSION.md</span>
               <div className="flex items-center gap-3">
                 <div className="text-xs font-mono text-white/50">
                   {articleText.length.toLocaleString()} / {(inputs?.targetLength || 5000).toLocaleString()} chars
@@ -1602,37 +1628,78 @@ export default function Home() {
             <Copy size={18} /> 完成原稿をコピー！
           </button>
 
-          {/* Dev Mode: Note Draft Post Button */}
+          {/* Dev Mode: Note Draft Post Button & History */}
           {appMode === "development" && (
-            <div className="border border-dashed border-yellow-500/30 bg-yellow-500/5 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
+            <div className="border border-dashed border-yellow-500/30 bg-yellow-500/5 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between border-b border-yellow-500/20 pb-2">
                 <div className="flex items-center gap-2 text-yellow-500 font-bold text-sm">
                   <AlertTriangle size={14} />
-                  <span>Note自動投稿検証 (Dev)</span>
+                  <span>Note自動投稿 (開発モード)</span>
                 </div>
                 <div className="text-[10px] text-yellow-500/60 font-mono">mode: development</div>
               </div>
 
-              <div className="bg-black/40 rounded-lg p-3 min-h-[60px] max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-400">
-                {postLogs.length === 0 ? "待機中..." : postLogs.map((l, i) => <div key={i}>{l}</div>)}
+              <div className="flex flex-col gap-3">
+                <div className="bg-black/40 rounded-lg p-3 min-h-[60px] max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-400 space-y-1">
+                  {postLogs.length === 0 ? "> Ready for deployment check..." : postLogs.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+
+                <button
+                  onClick={handleDraftPost}
+                  disabled={postStatus === "posting"}
+                  className={cn(
+                    "w-full py-3 rounded-xl border font-bold flex items-center justify-center gap-2 transition-all text-xs",
+                    postStatus === "idle" || postStatus === "error" || postStatus === "success" || postStatus === "stopped"
+                      ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
+                      : "border-gray-700 text-gray-500 cursor-not-allowed"
+                  )}
+                >
+                  {postStatus === "posting" ? "ブラウザ操作を実行中..." : <><Send size={14} /> Noteへ実投稿（下書き）</>}
+                </button>
               </div>
 
-              <button
-                onClick={handleDraftPost}
-                disabled={postStatus !== "idle"}
-                className={cn(
-                  "w-full py-3 rounded-xl border font-bold flex items-center justify-center gap-2 transition-all text-xs",
-                  postStatus === "idle"
-                    ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
-                    : "border-gray-700 text-gray-500 cursor-not-allowed"
-                )}
-              >
-                {postStatus === "idle" && <><Send size={14} /> Noteに下書き保存 (Mock)</>}
-                {postStatus === "posting" && "送信中..."}
-                {postStatus === "success" && "送信完了 (ロック済)"}
-                {postStatus === "stopped" && "安全装置により停止"}
-                {postStatus === "error" && "エラー発生"}
-              </button>
+              {/* Job History */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Job History</h4>
+                  <button onClick={fetchJobs} className="text-[10px] text-yellow-500/50 hover:text-yellow-500">
+                    <RotateCcw size={10} className="inline mr-1" /> Refetch
+                  </button>
+                </div>
+                <div className="bg-black/20 rounded-xl overflow-hidden border border-white/5 max-h-40 overflow-y-auto scrollbar-hide">
+                  <table className="w-full text-[10px] text-left">
+                    <thead className="bg-white/5 text-white/30 font-bold">
+                      <tr>
+                        <th className="p-2">Time</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2">Step</th>
+                        <th className="p-2">Link</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-white/60 divide-y divide-white/5">
+                      {jobs.length === 0 ? (
+                        <tr><td colSpan={4} className="p-4 text-center italic opacity-30">No history available</td></tr>
+                      ) : jobs.map(job => (
+                        <tr key={job.job_id} className="hover:bg-white/5">
+                          <td className="p-2 whitespace-nowrap">{new Date(job.created_at).toLocaleTimeString()}</td>
+                          <td className="p-2 font-bold">
+                            <span className={cn(
+                              job.status === 'success' ? 'text-green-400' :
+                                job.status === 'failed' ? 'text-red-400' : 'text-yellow-400'
+                            )}>{job.status}</span>
+                          </td>
+                          <td className="p-2 font-mono text-[9px] truncate max-w-[80px]">{job.last_step}</td>
+                          <td className="p-2">
+                            {job.note_url ? (
+                              <a href={job.note_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">URL</a>
+                            ) : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
