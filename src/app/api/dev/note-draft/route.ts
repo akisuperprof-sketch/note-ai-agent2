@@ -98,7 +98,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         if (isServerless && BROWSERLESS_TOKEN) {
             console.log(`[Action] Connecting to Browserless.io...`);
-            browser = await playwright.connect(`wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`);
+            browser = await playwright.connect({
+                wsEndpoint: `wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`
+            });
         } else {
             console.log(`[Action] Launching standard chromium (Local/Fallback)...`);
             // ローカル環境では playwright (または playwright-core + 自前chrome) が必要
