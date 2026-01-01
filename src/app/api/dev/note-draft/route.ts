@@ -1,6 +1,6 @@
-
 import { NextRequest, NextResponse } from "next/server";
-import { chromium } from "playwright";
+import { chromium as playwright } from "playwright-core";
+import chromium from "@sparticuz/chromium";
 import fs from "fs";
 import path from "path";
 import { DEV_SETTINGS, validateDevMode } from "@/lib/server/flags";
@@ -101,8 +101,20 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let browser: any;
     let page: any;
     try {
-        console.log(`[Action] Launching browser...`);
-        browser = await chromium.launch({ headless: true });
+        console.log(`[Action] Launching browser (Serverless: ${isServerless})...`);
+
+        if (isServerless) {
+            // Vercel / Production environment
+            browser = await playwright.launch({
+                args: chromium.args,
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless,
+            });
+        } else {
+            // Local development environment
+            browser = await playwright.launch({ headless: true });
+        }
+
         // セッションがあれば読み込む
         const context = fs.existsSync(SESSION_FILE)
             ? await browser.newContext({ storageState: SESSION_FILE })
