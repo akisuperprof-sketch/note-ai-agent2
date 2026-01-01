@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chromium as playwright } from "playwright-core";
-import chromium from "@sparticuz/chromium";
 import fs from "fs";
 import path from "path";
 import { DEV_SETTINGS, validateDevMode } from "@/lib/server/flags";
@@ -29,7 +28,7 @@ export async function POST(req: NextRequest) {
             password
         } = await req.json();
 
-        console.log(`[API] Note Draft Request Received. Mode=${mode}, Env=${isServerless ? 'Serverless' : 'Local'}`);
+        console.log(`[API] Note Draft Request Received. Mode=${mode}, Env=${isServerless ? 'Production' : 'Local'}`);
 
         // --- 安全柵 1: モードチェック ---
         if (!validateDevMode(mode)) {
@@ -87,7 +86,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], email?: string, password?: string }) {
-    console.log(`[Action] Starting NoteDraftAction. Env: ${isServerless ? 'Serverless' : 'Local'}`);
+    console.log(`[Action] Starting NoteDraftAction. Env: ${isServerless ? 'Production' : 'Local'}`);
     job.status = 'running';
     job.started_at = new Date().toISOString();
     saveJob(job);
@@ -95,22 +94,24 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let browser: any;
     let page: any;
     try {
-        const exePath = isServerless ? await chromium.executablePath() : null;
-        console.log(`[Action] Executable Path Detected: ${exePath || 'Using default'}`);
+        const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY;
 
-        if (isServerless && exePath) {
-            console.log(`[Action] Launching @sparticuz/chromium...`);
-            browser = await playwright.launch({
-                args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
-                executablePath: exePath,
-                headless: true,
-            });
+        if (isServerless && BROWSERLESS_TOKEN) {
+            console.log(`[Action] Connecting to Browserless.io...`);
+            browser = await playwright.connect(`wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`);
         } else {
-            console.log(`[Action] Launching standard chromium...`);
-            browser = await playwright.launch({ headless: true });
+            console.log(`[Action] Launching standard chromium (Local/Fallback)...`);
+            // ローカル環境では playwright (または playwright-core + 自前chrome) が必要
+            // 本番でトークンがない場合はエラーになるが、それは設定漏れとして扱う
+            try {
+                browser = await playwright.launch({ headless: true });
+            } catch (e: any) {
+                console.error("Local browser launch failed:", e.message);
+                throw new Error("Production connectivity failed and local browser not available.");
+            }
         }
 
-        // セッションがあれば読み込む
+        // セッション管理は接続後に行う（StorageStateは接続されたブラウザ側でも有効）
         const context = fs.existsSync(SESSION_FILE)
             ? await browser.newContext({ storageState: SESSION_FILE })
             : await browser.newContext();
