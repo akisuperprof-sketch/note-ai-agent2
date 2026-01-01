@@ -1,0 +1,7 @@
+{
+    "functions": {
+        "src/app/api/dev/note-draft/route.ts": {
+            "maxDuration": 60
+        }
+    }
+}
