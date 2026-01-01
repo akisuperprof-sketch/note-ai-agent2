@@ -1100,7 +1100,15 @@ export default function Home() {
         }),
       });
 
-      const data = await res.json();
+      let data;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.error("Non-JSON response received:", text);
+        throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
+      }
 
       if (res.ok && data.status === "success") {
         setPostStatus("success");

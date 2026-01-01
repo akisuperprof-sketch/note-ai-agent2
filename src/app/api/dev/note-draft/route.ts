@@ -11,71 +11,80 @@ const SESSION_FILE = path.join(process.cwd(), '.secret/note_session.json');
 const LOG_DIR = path.join(process.cwd(), '.gemini/data/logs');
 
 export async function POST(req: NextRequest) {
-    const {
-        article_id,
-        title,
-        body,
-        tags,
-        mode,
-        request_id,
-        scheduled_at,
-        email,
-        password
-    } = await req.json();
+    try {
+        const {
+            article_id,
+            title,
+            body,
+            tags,
+            mode,
+            request_id,
+            scheduled_at,
+            email,
+            password
+        } = await req.json();
 
-    console.log(`[API] Note Draft Request Received: article_id=${article_id}, mode=${mode}`);
+        console.log(`[API] Note Draft Request Received: article_id=${article_id}, mode=${mode}`);
 
-    // --- 安全柵 1: モードチェック ---
-    if (!validateDevMode(mode)) {
-        console.warn(`[API] Forbidden: Draft requested in production mode.`);
-        return NextResponse.json({ error: "Forbidden: Production mode cannot access Note API" }, { status: 403 });
+        // --- 安全柵 1: モードチェック ---
+        if (!validateDevMode(mode)) {
+            console.warn(`[API] Forbidden: Draft requested in production mode.`);
+            return NextResponse.json({ error: "Forbidden: Production mode cannot access Note API" }, { status: 403 });
+        }
+
+        // --- 安全柵 2: 緊急停止フラグ ---
+        if (!DEV_SETTINGS.AUTO_POST_ENABLED) {
+            console.warn(`[API] Service Unavailable: Auto-post is disabled by flags.`);
+            return NextResponse.json({ error: "Auto-post is disabled by flags" }, { status: 503 });
+        }
+
+        // --- 安全柵 3: 冪等性チェック (Article ID & Request ID) ---
+        const allJobs = getAllJobs();
+        if (allJobs.find(j => j.article_id === article_id && j.status === 'success')) {
+            console.log(`[API] Skipped: Article ${article_id} already posted successfully.`);
+            return NextResponse.json({ status: 'skipped', message: 'Article already posted' });
+        }
+        if (allJobs.find(j => j.request_id === request_id)) {
+            console.log(`[API] Skipped: Request ID ${request_id} already processed.`);
+            return NextResponse.json({ status: 'skipped', message: 'Request ID already used' });
+        }
+
+        // ジョブ作成
+        const job: NoteJob = {
+            job_id: `job_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            article_id,
+            request_id,
+            mode: 'development',
+            status: 'pending',
+            attempt_count: 1,
+            created_at: new Date().toISOString(),
+            started_at: null,
+            finished_at: null,
+            posted_at: null,
+            note_url: null,
+            error_code: null,
+            error_message: null,
+            last_step: 'S00_init'
+        };
+
+        saveJob(job);
+        console.log(`[API] Job Created: ${job.job_id}`);
+
+        // 非同期で実行（Next.js Edge Runtimeなどでは工夫が必要だが、ここでは標準的なAPI環境を想定）
+        // 実際には 202 Accepted を返してバックグラウンドで処理するのが望ましいが、Next.js API Routesの制約内で同期的に実行する
+
+        const result = await runNoteDraftAction(job, { title, body, tags, email, password });
+
+        console.log(`[API] Action Result: ${result.status}`);
+        return NextResponse.json(result);
+    } catch (e: any) {
+        console.error(`[API] Fatal Crash:`, e);
+        return NextResponse.json({
+            error: "Internal Server Error",
+            error_message: e instanceof Error ? e.message : String(e),
+            status: 'failed'
+        }, { status: 500 });
     }
-
-    // --- 安全柵 2: 緊急停止フラグ ---
-    if (!DEV_SETTINGS.AUTO_POST_ENABLED) {
-        console.warn(`[API] Service Unavailable: Auto-post is disabled by flags.`);
-        return NextResponse.json({ error: "Auto-post is disabled by flags" }, { status: 503 });
-    }
-
-    // --- 安全柵 3: 冪等性チェック (Article ID & Request ID) ---
-    const allJobs = getAllJobs();
-    if (allJobs.find(j => j.article_id === article_id && j.status === 'success')) {
-        console.log(`[API] Skipped: Article ${article_id} already posted successfully.`);
-        return NextResponse.json({ status: 'skipped', message: 'Article already posted' });
-    }
-    if (allJobs.find(j => j.request_id === request_id)) {
-        console.log(`[API] Skipped: Request ID ${request_id} already processed.`);
-        return NextResponse.json({ status: 'skipped', message: 'Request ID already used' });
-    }
-
-    // ジョブ作成
-    const job: NoteJob = {
-        job_id: `job_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        article_id,
-        request_id,
-        mode: 'development',
-        status: 'pending',
-        attempt_count: 1,
-        created_at: new Date().toISOString(),
-        started_at: null,
-        finished_at: null,
-        posted_at: null,
-        note_url: null,
-        error_code: null,
-        error_message: null,
-        last_step: 'S00_init'
-    };
-
-    saveJob(job);
-    console.log(`[API] Job Created: ${job.job_id}`);
-
-    // 非同期で実行（Next.js Edge Runtimeなどでは工夫が必要だが、ここでは標準的なAPI環境を想定）
-    // 実際には 202 Accepted を返してバックグラウンドで処理するのが望ましいが、Next.js API Routesの制約内で同期的に実行する
-
-    const result = await runNoteDraftAction(job, { title, body, tags, email, password });
-
-    console.log(`[API] Action Result: ${result.status}`);
-    return NextResponse.json(result);
 }
 
 async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], email?: string, password?: string }) {
