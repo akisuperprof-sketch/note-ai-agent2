@@ -98,36 +98,34 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         if (isServerless) {
             if (!BROWSERLESS_TOKEN) {
-                console.error("[Action] CRITICAL: BROWSERLESS_API_KEY is not set in environment variables.");
-                throw new Error("本番環境での実行には Browserless.io のAPIキー設定が必要です。Vercelの環境変数を確認してください。");
+                console.error("[Action] CRITICAL: BROWSERLESS_API_KEY is not set.");
+                throw new Error("APIキー(BROWSERLESS_API_KEY)が設定されていません。");
             }
 
-            console.log(`[Action] Connecting to Browserless.io... (Token length: ${BROWSERLESS_TOKEN.length})`);
+            job.last_step = 'S00b_connecting';
+            saveJob(job);
+            console.log(`[Action] Connecting to Browserless.io (CDP)...`);
 
-            // いくつかのURLパターンを試す可能性があるが、まずは標準的なパスを試行
-            // 404が出る場合は /chromium?token=... も検討
-            const wsEndpoint = `wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`;
-
+            // Browserless.io 推奨の CDP 接続を試行
             try {
-                browser = await playwright.connect({ wsEndpoint });
+                browser = await playwright.connectOverCDP(
+                    `wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`,
+                    { timeout: 15000 } // 15秒でタイムアウトさせる
+                );
             } catch (e: any) {
-                console.warn("[Action] Connection to /playwright failed, trying alternative /chromium endpoint...", e.message);
-                const altEndpoint = `wss://chrome.browserless.io/chromium?token=${BROWSERLESS_TOKEN}`;
-                browser = await playwright.connect({ wsEndpoint: altEndpoint });
+                console.warn("[Action] CDP Connection failed, falling back to Playwright native...", e.message);
+                browser = await playwright.connect({
+                    wsEndpoint: `wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`,
+                    timeout: 15000
+                });
             }
         } else {
-            console.log(`[Action] Launching standard chromium (Local/Fallback)...`);
-            // ローカル環境では playwright (または playwright-core + 自前chrome) が必要
-            // 本番でトークンがない場合はエラーになるが、それは設定漏れとして扱う
-            try {
-                browser = await playwright.launch({ headless: true });
-            } catch (e: any) {
-                console.error("Local browser launch failed:", e.message);
-                throw new Error("Production connectivity failed and local browser not available.");
-            }
+            console.log(`[Action] Launching standard chromium (Local)...`);
+            browser = await playwright.launch({ headless: true });
         }
 
-        // セッション管理は接続後に行う（StorageStateは接続されたブラウザ側でも有効）
+        // 接続完了後の処理
+        console.log(`[Action] Browser connected/launched.`);
         const context = fs.existsSync(SESSION_FILE)
             ? await browser.newContext({ storageState: SESSION_FILE })
             : await browser.newContext();
