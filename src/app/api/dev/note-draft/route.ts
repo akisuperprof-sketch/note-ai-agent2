@@ -94,13 +94,27 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let browser: any;
     let page: any;
     try {
-        const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY;
+        const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
 
-        if (isServerless && BROWSERLESS_TOKEN) {
-            console.log(`[Action] Connecting to Browserless.io...`);
-            browser = await playwright.connect({
-                wsEndpoint: `wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`
-            });
+        if (isServerless) {
+            if (!BROWSERLESS_TOKEN) {
+                console.error("[Action] CRITICAL: BROWSERLESS_API_KEY is not set in environment variables.");
+                throw new Error("本番環境での実行には Browserless.io のAPIキー設定が必要です。Vercelの環境変数を確認してください。");
+            }
+
+            console.log(`[Action] Connecting to Browserless.io... (Token length: ${BROWSERLESS_TOKEN.length})`);
+
+            // いくつかのURLパターンを試す可能性があるが、まずは標準的なパスを試行
+            // 404が出る場合は /chromium?token=... も検討
+            const wsEndpoint = `wss://chrome.browserless.io/playwright?token=${BROWSERLESS_TOKEN}`;
+
+            try {
+                browser = await playwright.connect({ wsEndpoint });
+            } catch (e: any) {
+                console.warn("[Action] Connection to /playwright failed, trying alternative /chromium endpoint...", e.message);
+                const altEndpoint = `wss://chrome.browserless.io/chromium?token=${BROWSERLESS_TOKEN}`;
+                browser = await playwright.connect({ wsEndpoint: altEndpoint });
+            }
         } else {
             console.log(`[Action] Launching standard chromium (Local/Fallback)...`);
             // ローカル環境では playwright (または playwright-core + 自前chrome) が必要
