@@ -211,21 +211,21 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             job.last_step = 'S04_fill_title';
             saveJob(job);
             console.log(`[Action] Filling title...`);
-            // 「記事タイトル」というプレースホルダーに対応
-            const titleSelector = 'textarea[placeholder*="タイトル"], .note-editor-v3__title-textarea, #note-title-input';
-            await page.waitForSelector(titleSelector, { state: 'visible', timeout: 30000 });
-            await page.fill(titleSelector, content.title);
+            // プレースホルダー「タイトル」を含む要素を探す
+            const titleInput = page.getByPlaceholder(/タイトル/);
+            await titleInput.waitFor({ state: 'visible', timeout: 30000 });
+            await titleInput.fill(content.title);
 
             job.last_step = 'S05_fill_body';
             saveJob(job);
             console.log(`[Action] Filling body...`);
-            // 「書いてみませんか？」というプレースホルダー、または role="textbox" に対応
-            const bodySelector = '[role="textbox"], .note-common-editor__editable, [placeholder*="書いてみませんか"], .lavender-editor__content';
-            await page.waitForSelector(bodySelector, { state: 'visible', timeout: 20000 });
-            await page.click(bodySelector);
-            await page.keyboard.type(content.body, { delay: 5 }); // 1文字ずつ確実に入力
+            // 本文：role="textbox" または プレースホルダー「書いてみませんか」
+            const bodyInput = page.locator('[role="textbox"], [placeholder*="書いてみませんか"]').first();
+            await bodyInput.waitFor({ state: 'visible', timeout: 20000 });
+            await bodyInput.click();
+            await page.keyboard.type(content.body, { delay: 5 });
 
-            await page.waitForTimeout(5000); // 保存待ち
+            await page.waitForTimeout(5000); // 念のため自動保存を待つ
 
             job.status = 'success';
             job.finished_at = new Date().toISOString();
@@ -236,7 +236,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             await browser.close();
             return { status: 'success', note_url: job.note_url };
-        } catch (e) {
+        } catch (e: any) {
+            console.error(`[Action] Content filling failed.`, e);
             await captureFailure('S04_fill_content', e);
             throw e;
         }
