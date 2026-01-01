@@ -1058,7 +1058,7 @@ export default function Home() {
     try {
       const res = await fetch(`/api/dev/note-jobs?mode=${appMode}`);
       if (res.ok) {
-        const data = await res.ok ? await res.json() : [];
+        const data = await res.json();
         setJobs(Array.isArray(data) ? data.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : []);
       }
     } catch (e) {
@@ -1113,9 +1113,11 @@ export default function Home() {
         setPostLogs(prev => [...prev, `[ERROR] ${msg}`, `Step: ${data.last_step || 'unknown'}`]);
       }
       fetchJobs(); // 履歴更新
-    } catch (e) {
+    } catch (e: any) {
       setPostStatus("error");
-      setPostLogs(prev => [...prev, `[ERROR] 通信エラーが発生しました`]);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      setPostLogs(prev => [...prev, `[ERROR] 通信エラー: ${errorMsg}`]);
+      console.error("Draft post fetch failed:", e);
     }
   };
 
