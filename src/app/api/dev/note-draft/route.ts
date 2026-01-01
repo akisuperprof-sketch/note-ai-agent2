@@ -7,7 +7,7 @@ import { DEV_SETTINGS, validateDevMode } from "@/lib/server/flags";
 import { getAllJobs, saveJob, NoteJob } from "@/lib/server/jobs";
 
 // 認証情報のパス（Vercel等の制限を回避するため、書き込みが必要な場合は /tmp を使用）
-const isServerless = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+const isServerless = !!(process.env.VERCEL || process.env.AWS_EXECUTION_ENV || process.env.NODE_ENV === 'production');
 const SESSION_FILE = isServerless
     ? path.join('/tmp', 'note_session.json')
     : path.join(process.cwd(), '.secret/note_session.json');
@@ -29,28 +29,24 @@ export async function POST(req: NextRequest) {
             password
         } = await req.json();
 
-        console.log(`[API] Note Draft Request Received: article_id=${article_id}, mode=${mode}`);
+        console.log(`[API] Note Draft Request Received. Mode=${mode}, Env=${isServerless ? 'Serverless' : 'Local'}`);
 
         // --- 安全柵 1: モードチェック ---
         if (!validateDevMode(mode)) {
-            console.warn(`[API] Forbidden: Draft requested in production mode.`);
             return NextResponse.json({ error: "Forbidden: Production mode cannot access Note API" }, { status: 403 });
         }
 
         // --- 安全柵 2: 緊急停止フラグ ---
         if (!DEV_SETTINGS.AUTO_POST_ENABLED) {
-            console.warn(`[API] Service Unavailable: Auto-post is disabled by flags.`);
             return NextResponse.json({ error: "Auto-post is disabled by flags" }, { status: 503 });
         }
 
         // --- 安全柵 3: 冪等性チェック (Article ID & Request ID) ---
         const allJobs = getAllJobs();
         if (allJobs.find(j => j.article_id === article_id && j.status === 'success')) {
-            console.log(`[API] Skipped: Article ${article_id} already posted successfully.`);
             return NextResponse.json({ status: 'skipped', message: 'Article already posted' });
         }
         if (allJobs.find(j => j.request_id === request_id)) {
-            console.log(`[API] Skipped: Request ID ${request_id} already processed.`);
             return NextResponse.json({ status: 'skipped', message: 'Request ID already used' });
         }
 
@@ -73,14 +69,12 @@ export async function POST(req: NextRequest) {
         };
 
         saveJob(job);
-        console.log(`[API] Job Created: ${job.job_id}`);
 
         // 非同期で実行（Next.js Edge Runtimeなどでは工夫が必要だが、ここでは標準的なAPI環境を想定）
         // 実際には 202 Accepted を返してバックグラウンドで処理するのが望ましいが、Next.js API Routesの制約内で同期的に実行する
 
         const result = await runNoteDraftAction(job, { title, body, tags, email, password });
 
-        console.log(`[API] Action Result: ${result.status}`);
         return NextResponse.json(result);
     } catch (e: any) {
         console.error(`[API] Fatal Crash:`, e);
@@ -93,7 +87,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], email?: string, password?: string }) {
-    console.log(`[Action] Starting NoteDraftAction for job ${job.job_id}`);
+    console.log(`[Action] Starting NoteDraftAction. Env: ${isServerless ? 'Serverless' : 'Local'}`);
     job.status = 'running';
     job.started_at = new Date().toISOString();
     saveJob(job);
@@ -101,17 +95,18 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let browser: any;
     let page: any;
     try {
-        console.log(`[Action] Launching browser (Serverless: ${isServerless})...`);
+        const exePath = isServerless ? await chromium.executablePath() : null;
+        console.log(`[Action] Executable Path Detected: ${exePath || 'Using default'}`);
 
-        if (isServerless) {
-            // Vercel / Production environment
+        if (isServerless && exePath) {
+            console.log(`[Action] Launching @sparticuz/chromium...`);
             browser = await playwright.launch({
-                args: chromium.args,
-                executablePath: await chromium.executablePath(),
-                headless: chromium.headless,
+                args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
+                executablePath: exePath,
+                headless: chromium.headless === true,
             });
         } else {
-            // Local development environment
+            console.log(`[Action] Launching standard chromium...`);
             browser = await playwright.launch({ headless: true });
         }
 
