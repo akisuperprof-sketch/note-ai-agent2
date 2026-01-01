@@ -146,12 +146,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // S01: Load Session / Login Check
         job.last_step = 'S01_load_session';
         saveJob(job);
-        console.log(`[Action] Loading session/editor...`);
-        await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 30000 });
+        console.log(`[Action] Loading editor...`);
+        // note.com/notes/new にアクセスすると editor.note.com にリダイレクトされる
+        await page.goto('https://note.com/notes/new', { waitUntil: 'load', timeout: 60000 });
+
+        // リダイレクト待ち
+        try {
+            await page.waitForURL(/editor\.note\.com/, { timeout: 20000 });
+            console.log(`[Action] Redirected to editor domain: ${page.url()}`);
+        } catch (e) { console.log(`[Action] URL redirect check continue...`); }
 
         const isLoginPage = page.url().includes('note.com/login');
         if (isLoginPage || !fs.existsSync(SESSION_FILE)) {
-            console.log(`[Action] Session invalid or not found. Attempting login...`);
+            console.log(`[Action] Session invalid. Attempting login...`);
             if (content.email && content.password) {
                 try {
                     job.last_step = 'S02b_login_attempt';
@@ -174,13 +181,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     }
                     fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                    await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 30000 });
+                    // ログイン後、再度エディタへ
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'load', timeout: 30000 });
+                    await page.waitForURL(/editor\.note\.com/, { timeout: 20000 });
                 } catch (e) {
                     await captureFailure('S02b_login_attempt', e);
                     throw e;
                 }
             } else {
-                const err = new Error('Note session expired and no credentials provided.');
+                const err = new Error('Auth required (Login needed).');
                 await captureFailure('S03_verify_login', err);
                 throw err;
             }
@@ -188,44 +197,34 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // S04: Content Input
         try {
-            await page.waitForTimeout(7000); // 新エディタは重いため長めに待機
+            // エディタの初期化を十分に待つ
+            await page.waitForTimeout(10000);
 
             const currentUrl = page.url();
-            console.log(`[Action] Current URL before input: ${currentUrl}`);
-
-            // 現在のURLをステップ名に含めて可視化
-            const urlKey = currentUrl.includes('editor.note.com') ? 'new_editor' : (currentUrl.split('/').pop() || 'unknown');
+            const urlKey = currentUrl.includes('editor.note.com') ? 'new_editor' : 'unknown';
             job.last_step = `S04_at_${urlKey}`;
             saveJob(job);
-
-            // エディタ画面であることを確認（URLに editor.note.com が含まれていればOKとする）
-            const isEditor = currentUrl.includes('editor.note.com') || await page.evaluate(() => {
-                return !!document.querySelector('.note-editor-v3, .note-common-editor, [placeholder*="タイトル"], [placeholder*="書いてみませんか"]');
-            });
-
-            if (!isEditor) {
-                console.warn(`[Action] Not on editor page. URL: ${currentUrl}`);
-                throw new Error(`エディタ画面にたどり着けませんでした。ログインに失敗したか、予期せぬページにリダイレクトされました。`);
-            }
 
             job.last_step = 'S04_fill_title';
             saveJob(job);
             console.log(`[Action] Filling title...`);
-            // プレースホルダー「タイトル」を含む要素を探す
-            const titleInput = page.getByPlaceholder(/タイトル/);
+            // 「記事タイトル」という文字を含むプレースホルダーを狙い撃ち
+            const titleInput = page.locator('textarea[placeholder*="タイトル"], [placeholder*="記事タイトル"], textarea:below(:text("タイトル"))').first();
             await titleInput.waitFor({ state: 'visible', timeout: 30000 });
+            await titleInput.click();
             await titleInput.fill(content.title);
 
             job.last_step = 'S05_fill_body';
             saveJob(job);
             console.log(`[Action] Filling body...`);
-            // 本文：role="textbox" または プレースホルダー「書いてみませんか」
-            const bodyInput = page.locator('[role="textbox"], [placeholder*="書いてみませんか"]').first();
+            // 本文：role="textbox" または 「書いてみませんか」
+            const bodyInput = page.locator('[role="textbox"], [placeholder*="書いてみませんか"], .note-common-editor__editable').first();
             await bodyInput.waitFor({ state: 'visible', timeout: 20000 });
             await bodyInput.click();
-            await page.keyboard.type(content.body, { delay: 5 });
+            await page.waitForTimeout(1000);
+            await page.keyboard.type(content.body, { delay: 20 });
 
-            await page.waitForTimeout(5000); // 念のため自動保存を待つ
+            await page.waitForTimeout(5000); // 保存待ち
 
             job.status = 'success';
             job.finished_at = new Date().toISOString();
@@ -237,7 +236,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await browser.close();
             return { status: 'success', note_url: job.note_url };
         } catch (e: any) {
-            console.error(`[Action] Content filling failed.`, e);
+            console.error(`[Action] Content filling failed.`, e.message);
             await captureFailure('S04_fill_content', e);
             throw e;
         }
