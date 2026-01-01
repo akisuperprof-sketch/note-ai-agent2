@@ -103,7 +103,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             browser = await playwright.launch({
                 args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
                 executablePath: exePath,
-                headless: chromium.headless === true,
+                headless: true,
             });
         } else {
             console.log(`[Action] Launching standard chromium...`);
