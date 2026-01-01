@@ -1067,8 +1067,13 @@ export default function Home() {
   };
 
   const handleDraftPost = async () => {
+    if (!articleText) {
+      alert("記事が生成されていません");
+      return;
+    }
+
     // 記事ID（タイトルから生成）とリクエストID（重複防止キー）
-    const articleId = displayTitle ? btoa(encodeURIComponent(displayTitle)).substring(0, 12) : `art_${Date.now()}`;
+    const articleId = displayTitle ? btoa(encodeURI(displayTitle)).substring(0, 12) : `art_${Date.now()}`;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
     // Safety Check
@@ -1079,10 +1084,36 @@ export default function Home() {
       return;
     }
 
-    if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※.secret/note_session.jsonが必要です")) return;
+    if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※Vercel環境ではBrowserless.ioの設定が必要です")) return;
 
     setPostStatus("posting");
     setPostLogs(prev => [`[START] 下書き保存開始 (ArticleID: ${articleId})`]);
+
+    // ポーリング用のタイマー
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/dev/note-jobs");
+        if (res.ok) {
+          const jobsData = await res.json();
+          setJobs(jobsData);
+
+          const myJob = Array.isArray(jobsData) ? jobsData.find((j: any) => j.request_id === requestId) : null;
+          if (myJob) {
+            setPostLogs(prev => {
+              const base = `[STATUS] ${myJob.last_step || 'unknown'} (${myJob.status})`;
+              if (prev[prev.length - 1] !== base) {
+                return [...prev, base];
+              }
+              return prev;
+            });
+
+            if (myJob.status === 'success' || myJob.status === 'failed') {
+              clearInterval(pollInterval);
+            }
+          }
+        }
+      } catch (e) { console.error("Polling failed", e); }
+    }, 3000);
 
     try {
       const res = await fetch("/api/dev/note-draft", {
@@ -1107,10 +1138,13 @@ export default function Home() {
       } else {
         const text = await res.text();
         console.error("Non-JSON response received:", text);
+        clearInterval(pollInterval);
         throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
       }
 
-      if (res.ok && data.status === "success") {
+      clearInterval(pollInterval); // 完了したのでタイマー停止
+
+      if (res.status === 200 && data.status === "success") {
         setPostStatus("success");
         setPostedArticles(prev => new Set(prev).add(articleId));
         setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`, `URL: ${data.note_url || 'N/A'}`]);
@@ -1120,8 +1154,9 @@ export default function Home() {
         const msg = data.error_message || data.error || "詳細不明のエラー";
         setPostLogs(prev => [...prev, `[ERROR] ${msg}`, `Step: ${data.last_step || 'unknown'}`]);
       }
-      fetchJobs(); // 履歴更新
+      fetchJobs(); // 最終履歴更新
     } catch (e: any) {
+      clearInterval(pollInterval);
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
       setPostLogs(prev => [...prev, `[ERROR] 通信エラー: ${errorMsg}`]);
