@@ -4,7 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import {
   Play, Check, Copy, AlertCircle, X, ChevronRight, HelpCircle,
   RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus,
-  Eye, BarChart3, Download
+  Eye, BarChart3, Download, Search,
+  AlertTriangle, // Added for Dev Mode Warning
+  Send // Added for Post Button
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
@@ -20,22 +22,49 @@ type AppStatus = "idle" | "outline" | "writing" | "polish" | "scoring" | "image_
 
 // --- Components ---
 
-function Header() {
+function Header({ appMode, setAppMode }: { appMode?: "production" | "development", setAppMode?: (m: "production" | "development") => void }) {
   return (
-    <header className="fixed top-0 left-0 right-0 h-16 border-b border-[rgba(255,255,255,0.08)] bg-[#0B0F1A]/80 backdrop-blur-md z-50 flex items-center justify-between px-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white font-bold shadow-lg shadow-orange-500/20 overflow-hidden border border-white/10">
-          <span className="text-xl">🐾</span>
+    <div className="flex justify-between items-center mb-12 animate-in fade-in slide-in-from-top-4 duration-700">
+      <div className="flex gap-2 items-center text-white/80">
+        <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-orange-400 to-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/20">
+          <span className="text-lg md:text-xl transform -scale-x-100">🐼</span>
         </div>
         <div className="flex flex-col">
-          <span className="text-[10px] text-orange-400 font-bold tracking-tighter leading-none opacity-80 mb-0.5">記事つくレッサーパンダの</span>
-          <h1 className="text-base md:text-lg font-black text-white tracking-widest leading-none">
-            note <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400">AI AGENT</span>
-          </h1>
+          <span className="font-bold text-sm md:text-base tracking-tight leading-none">Note AI Agent</span>
+          <span className="text-[10px] text-orange-400 font-mono tracking-widest uppercase">Autonomous Ver.2.0</span>
         </div>
       </div>
-      <div className="text-[10px] text-white/30 font-mono tracking-widest">v2.1 RED PANDA</div>
-    </header>
+
+      {/* Mode Switcher UI */}
+      {setAppMode && (
+        <div className="flex items-center gap-2 bg-black/40 rounded-full p-1 border border-white/10">
+          <button
+            onClick={() => setAppMode("production")}
+            className={cn(
+              "px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1",
+              appMode === "production" ? "bg-green-500/20 text-green-400 shadow-sm" : "text-gray-500 hover:text-gray-300"
+            )}
+          >
+            <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "production" ? "bg-green-500" : "bg-gray-600")} />
+            Production
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("【警告】開発モードに切り替えますか？\n\n・自動投稿機能の検証が可能になります\n・誤操作に十分注意してください")) {
+                setAppMode("development");
+              }
+            }}
+            className={cn(
+              "px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1",
+              appMode === "development" ? "bg-red-500/20 text-red-400 shadow-sm" : "text-gray-500 hover:text-gray-300"
+            )}
+          >
+            <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "development" ? "bg-red-500" : "bg-gray-600")} />
+            Dev Mode
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -890,8 +919,14 @@ export default function Home() {
   const [eyecatchError, setEyecatchError] = useState<string | null>(null);
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
-  // Experimental Features
-  const [isDevMode, setIsDevMode] = useState(false);
+  // Mode Management
+  const [appMode, setAppMode] = useState<"production" | "development">("production");
+  const [postedArticles, setPostedArticles] = useState<Set<string>>(new Set());
+  const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
+  const [postLogs, setPostLogs] = useState<string[]>([]);
+
+  // Experimental Features (Renamed from isDevMode)
+  const [isTitleFabMode, setIsTitleFabMode] = useState(false);
 
   // Helper: Canvas Image Composition (Client-side)
   const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
@@ -994,6 +1029,64 @@ export default function Home() {
     } catch (e) {
       console.error("Merge failed", e);
       alert("画像の合成保存に失敗しました。通常保存を試してください。");
+    }
+  };
+
+
+  // --- Safety & Posting Logic (Dev Mode Only) ---
+  const checkSafetyLock = (articleId: string): { safe: boolean, reason?: string } => {
+    // 1. Check Mode
+    if (appMode !== "development") return { safe: false, reason: "Production Mode Restriction" };
+    // 2. Check Duplication
+    if (postedArticles.has(articleId)) return { safe: false, reason: "Duplicate Post Prevention" };
+    // 3. Check Status
+    if (postStatus === "success" || postStatus === "posting") return { safe: false, reason: "Process Busy or Completed" };
+
+    return { safe: true };
+  };
+
+  const handleDraftPost = async () => {
+    // Create logical Article ID (hash-like)
+    const articleId = displayTitle ? btoa(encodeURIComponent(displayTitle)).substring(0, 12) : "unknown_id";
+
+    // Safety Check
+    const safety = checkSafetyLock(articleId);
+    if (!safety.safe) {
+      setPostStatus("stopped");
+      setPostLogs(prev => [...prev, `[STOP] 安全装置作動: ${safety.reason}`]);
+      alert(`安全装置が作動しました: ${safety.reason}`);
+      return;
+    }
+
+    if (!confirm("【開発モード検証】\nnoteへ「下書き」保存を実行しますか？\n（実際にはモックAPIが呼ばれます）")) return;
+
+    setPostStatus("posting");
+    setPostLogs(prev => [...prev, `[START] 下書き保存プロセス開始 (ID: ${articleId})`]);
+
+    try {
+      // Simulate API Call Time
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Mock Verification of Fields
+      const payload = {
+        article_id: articleId,
+        mode: appMode,
+        title: displayTitle,
+        body: articleText,
+        created_at: new Date().toISOString(),
+        posted_at: null // Draft
+      };
+
+      console.log("Mock Note Payload:", payload); // Debug only in console
+
+      // Success
+      setPostStatus("success");
+      setPostedArticles(prev => new Set(prev).add(articleId));
+      setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`, `[INFO] 1記事1回制限によりロックされました`]);
+
+    } catch (e) {
+      setPostStatus("error");
+      setPostLogs(prev => [...prev, `[ERROR] 投稿処理失敗`]);
     }
   };
 
@@ -1385,7 +1478,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen pb-20 pt-20 px-4 md:px-8 max-w-2xl mx-auto">
-      <Header />
+      <Header appMode={appMode} setAppMode={setAppMode} />
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showHistory && <HistoryList onRestore={restoreHistory} onClose={() => setShowHistory(false)} />}
 
@@ -1398,6 +1491,15 @@ export default function Home() {
             <h1 className="text-5xl md:text-7xl font-black text-white mb-6 tracking-tighter leading-none px-4">
               思考を <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500 drop-shadow-sm">一瞬</span> で価値に
             </h1>
+
+            {/* Mode Warning Banner */}
+            {appMode === "development" && (
+              <div className="max-w-md mx-auto mb-6 bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3 flex items-center justify-center gap-2 animate-pulse">
+                <AlertTriangle size={16} className="text-yellow-500" />
+                <span className="text-yellow-500 font-bold text-xs">開発モード中：自動投稿検証が有効です</span>
+              </div>
+            )}
+
             <p className="text-base md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed font-serif italic px-6">
               "君のやることは、ノウハウや書きたいことの指示だけ。<br className="hidden md:block" />
               あとの構成・執筆・画像生成は僕が全部プロデュースするよ！"
@@ -1500,6 +1602,40 @@ export default function Home() {
             <Copy size={18} /> 完成原稿をコピー！
           </button>
 
+          {/* Dev Mode: Note Draft Post Button */}
+          {appMode === "development" && (
+            <div className="border border-dashed border-yellow-500/30 bg-yellow-500/5 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-yellow-500 font-bold text-sm">
+                  <AlertTriangle size={14} />
+                  <span>Note自動投稿検証 (Dev)</span>
+                </div>
+                <div className="text-[10px] text-yellow-500/60 font-mono">mode: development</div>
+              </div>
+
+              <div className="bg-black/40 rounded-lg p-3 min-h-[60px] max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-400">
+                {postLogs.length === 0 ? "待機中..." : postLogs.map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+
+              <button
+                onClick={handleDraftPost}
+                disabled={postStatus !== "idle"}
+                className={cn(
+                  "w-full py-3 rounded-xl border font-bold flex items-center justify-center gap-2 transition-all text-xs",
+                  postStatus === "idle"
+                    ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
+                    : "border-gray-700 text-gray-500 cursor-not-allowed"
+                )}
+              >
+                {postStatus === "idle" && <><Send size={14} /> Noteに下書き保存 (Mock)</>}
+                {postStatus === "posting" && "送信中..."}
+                {postStatus === "success" && "送信完了 (ロック済)"}
+                {postStatus === "stopped" && "安全装置により停止"}
+                {postStatus === "error" && "エラー発生"}
+              </button>
+            </div>
+          )}
+
           <div className="flex bg-white/5 p-1 rounded-2xl backdrop-blur-xl border border-white/10 overflow-x-auto">
             <button
               onClick={() => setActiveTab("result")}
@@ -1534,7 +1670,7 @@ export default function Home() {
                         </button>
                       )}
 
-                      {isDevMode ? (
+                      {isTitleFabMode ? (
                         <button
                           onClick={() => generatedImage && saveMergedImage(generatedImage, displayTitle, 'eyecatch')}
                           className="flex items-center gap-2 px-4 py-2 bg-purple-600 rounded-xl text-xs font-bold text-white hover:bg-purple-700 transition-all shadow-lg ring-2 ring-purple-400/50"
@@ -1552,7 +1688,7 @@ export default function Home() {
                   {/* Dev Mode Toggle */}
                   <div className="flex justify-end mt-2">
                     <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer hover:text-white transition-colors bg-white/5 px-3 py-1 rounded-full border border-white/5">
-                      <input type="checkbox" checked={isDevMode} onChange={e => setIsDevMode(e.target.checked)} className="rounded border-gray-600 text-orange-500 focus:ring-orange-500" />
+                      <input type="checkbox" checked={isTitleFabMode} onChange={e => setIsTitleFabMode(e.target.checked)} className="rounded border-gray-600 text-orange-500 focus:ring-orange-500" />
                       <span>🛠️ タイトル焼き込みモード (Beta)</span>
                     </label>
                   </div>
@@ -1646,7 +1782,7 @@ export default function Home() {
                             <p className="text-center text-orange-100 text-[10px] font-bold truncate">{img.heading}</p>
                           </div>
                         </div>
-                        {isDevMode ? (
+                        {isTitleFabMode ? (
                           <button
                             onClick={() => saveMergedImage(img.url, img.heading, 'inline')}
                             className="block w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 rounded-lg text-center text-[10px] text-purple-200 font-bold transition-all mt-2 border border-purple-500/30"
