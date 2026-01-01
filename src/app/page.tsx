@@ -926,6 +926,11 @@ export default function Home() {
   const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
   const [postLogs, setPostLogs] = useState<string[]>([]);
 
+  // Note Credentials
+  const [noteEmail, setNoteEmail] = useState("");
+  const [notePassword, setNotePassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
   // Experimental Features (Renamed from isDevMode)
   const [isTitleFabMode, setIsTitleFabMode] = useState(false);
 
@@ -1089,7 +1094,9 @@ export default function Home() {
           title: displayTitle,
           body: articleText,
           tags: hashtags,
-          mode: appMode
+          mode: appMode,
+          email: noteEmail,
+          password: notePassword
         }),
       });
 
@@ -1121,7 +1128,18 @@ export default function Home() {
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
     if (!hideHelp) setShowHelp(true);
+
+    // Load Note Credentials
+    const savedEmail = localStorage.getItem("panda_note_email");
+    const savedPass = localStorage.getItem("panda_note_pass");
+    if (savedEmail) setNoteEmail(savedEmail);
+    if (savedPass) setNotePassword(savedPass);
   }, []);
+
+  useEffect(() => {
+    if (noteEmail) localStorage.setItem("panda_note_email", noteEmail);
+    if (notePassword) localStorage.setItem("panda_note_pass", notePassword);
+  }, [noteEmail, notePassword]);
 
   const saveToHistory = (item: Omit<HistoryItem, "id" | "timestamp">) => {
     const newItem: HistoryItem = {
@@ -1642,6 +1660,37 @@ export default function Home() {
               <div className="flex flex-col gap-3">
                 <div className="bg-black/40 rounded-lg p-3 min-h-[60px] max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-400 space-y-1">
                   {postLogs.length === 0 ? "> Ready for deployment check..." : postLogs.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+
+                {/* Login Credentials Inputs */}
+                <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
+                  <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="relative">
+                      <input
+                        type="email"
+                        placeholder="Email"
+                        value={noteEmail}
+                        onChange={e => setNoteEmail(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
+                      />
+                    </div>
+                    <div className="relative flex items-center">
+                      <input
+                        type={showPass ? "text" : "password"}
+                        placeholder="Password"
+                        value={notePassword}
+                        onChange={e => setNotePassword(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
+                      />
+                      <button
+                        onClick={() => setShowPass(!showPass)}
+                        className="absolute right-2 text-white/40 hover:text-white transition-colors"
+                      >
+                        {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <button

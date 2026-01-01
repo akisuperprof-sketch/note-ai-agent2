@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
         tags,
         mode,
         request_id,
-        scheduled_at
+        scheduled_at,
+        email,
+        password
     } = await req.json();
 
     // --- 安全柵 1: モードチェック ---
@@ -63,17 +65,18 @@ export async function POST(req: NextRequest) {
     // 非同期で実行（Next.js Edge Runtimeなどでは工夫が必要だが、ここでは標準的なAPI環境を想定）
     // 実際には 202 Accepted を返してバックグラウンドで処理するのが望ましいが、Next.js API Routesの制約内で同期的に実行する
 
-    const result = await runNoteDraftAction(job, { title, body, tags });
+    const result = await runNoteDraftAction(job, { title, body, tags, email, password });
 
     return NextResponse.json(result);
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[] }) {
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], email?: string, password?: string }) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
     saveJob(job);
 
     const browser = await chromium.launch({ headless: true });
+    // セッションがあれば読み込む
     const context = fs.existsSync(SESSION_FILE)
         ? await browser.newContext({ storageState: SESSION_FILE })
         : await browser.newContext();
@@ -107,14 +110,40 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // S03: Verify Login
         job.last_step = 'S03_verify_login';
         saveJob(job);
+
+        // ログインが必要な場合
         if (page.url().includes('login')) {
-            throw new Error('Note session expired or login required. Please update note_session.json');
+            if (content.email && content.password) {
+                job.last_step = 'S02b_login_attempt';
+                saveJob(job);
+
+                // ログイン実行
+                await page.goto('https://note.com/login');
+                await page.fill('input[name="mail"]', content.email);
+                await page.fill('input[name="password"]', content.password);
+                await page.click('button:has-text("ログイン")');
+
+                // ログイン成功を待つ（エディタまたはトップページへ遷移）
+                await page.waitForNavigation({ waitUntil: 'networkidle' });
+
+                // セッションを保存して次回からログイン不要にする
+                const state = await context.storageState();
+                if (!fs.existsSync(path.dirname(SESSION_FILE))) {
+                    fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
+                }
+                fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
+
+                // 再度エディタへ
+                await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle' });
+            } else {
+                throw new Error('Note session expired and no credentials provided.');
+            }
         }
 
         // S04: Fill Title
         job.last_step = 'S04_fill_title';
         saveJob(job);
-        await page.waitForSelector('.note-editor-v3__title-textarea', { timeout: 10000 });
+        await page.waitForSelector('.note-editor-v3__title-textarea', { timeout: 15000 });
         await page.fill('.note-editor-v3__title-textarea', content.title);
 
         // S05: Fill Body
@@ -138,7 +167,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         job.last_step = 'S08_confirm_saved';
         saveJob(job);
         // トースト通知やURLの変化を待つ
-        await page.waitForTimeout(3000); // 簡易待機
+        await page.waitForTimeout(5000); // 保存完了を余裕を持って待つ
 
         // S09: Capture Result
         job.last_step = 'S09_capture_result';
