@@ -178,10 +178,20 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 try {
                     // ログイン実行
-                    await page.goto('https://note.com/login', { waitUntil: 'networkidle' });
-                    await page.fill('input[name="mail"]', content.email);
-                    await page.fill('input[name="password"]', content.password);
-                    await page.click('button:has-text("ログイン")');
+                    console.log(`[Action] Navigating to login page...`);
+                    await page.goto('https://note.com/login', { waitUntil: 'networkidle', timeout: 30000 });
+
+                    // メールアドレス入力欄が見つかるまで待機（複数の候補を試行）
+                    console.log(`[Action] Filling credentials...`);
+                    const mailSelector = 'input[name="mail"], input[type="email"], #email';
+                    await page.waitForSelector(mailSelector, { state: 'visible', timeout: 20000 });
+
+                    await page.fill(mailSelector, content.email);
+                    await page.fill('input[name="password"], input[type="password"]', content.password);
+
+                    // ログインボタンをクリック
+                    const loginBtn = 'button:has-text("ログイン"), button[type="submit"]';
+                    await page.click(loginBtn);
 
                     // ログイン成功を待つ（エディタまたはトップページへ遷移）
                     console.log(`[Action] Waiting for navigation after login...`);
