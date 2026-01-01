@@ -188,40 +188,42 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // S04: Content Input
         try {
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(7000); // 新エディタは重いため長めに待機
 
             const currentUrl = page.url();
             console.log(`[Action] Current URL before input: ${currentUrl}`);
 
             // 現在のURLをステップ名に含めて可視化
-            const urlKey = currentUrl.split('/').pop() || 'unknown';
+            const urlKey = currentUrl.includes('editor.note.com') ? 'new_editor' : (currentUrl.split('/').pop() || 'unknown');
             job.last_step = `S04_at_${urlKey}`;
             saveJob(job);
 
-            // エディタ画面であることを確認（公開ボタンや特定のテキストを探す）
-            const isEditor = await page.evaluate(() => {
-                return !!document.querySelector('.note-editor-v3, .note-common-editor, [placeholder="タイトル"]');
+            // エディタ画面であることを確認（URLに editor.note.com が含まれていればOKとする）
+            const isEditor = currentUrl.includes('editor.note.com') || await page.evaluate(() => {
+                return !!document.querySelector('.note-editor-v3, .note-common-editor, [placeholder*="タイトル"], [placeholder*="書いてみませんか"]');
             });
 
             if (!isEditor) {
-                console.warn(`[Action] Not on editor page. Redirected? Skipping content fill.`);
-                throw new Error(`エディタ画面にたどり着けませんでした (現在地: ${currentUrl})。ログインに失敗した可能性があります。`);
+                console.warn(`[Action] Not on editor page. URL: ${currentUrl}`);
+                throw new Error(`エディタ画面にたどり着けませんでした。ログインに失敗したか、予期せぬページにリダイレクトされました。`);
             }
 
             job.last_step = 'S04_fill_title';
             saveJob(job);
             console.log(`[Action] Filling title...`);
-            const titleSelector = '.note-editor-v3__title-textarea, textarea[placeholder="タイトル"], #note-title-input, [aria-label="ノートタイトル"]';
+            // 「記事タイトル」というプレースホルダーに対応
+            const titleSelector = 'textarea[placeholder*="タイトル"], .note-editor-v3__title-textarea, #note-title-input';
             await page.waitForSelector(titleSelector, { state: 'visible', timeout: 30000 });
             await page.fill(titleSelector, content.title);
 
             job.last_step = 'S05_fill_body';
             saveJob(job);
             console.log(`[Action] Filling body...`);
-            const bodySelector = '.note-common-editor__editable, [role="textbox"], .lavender-editor__content, #note-common-editor';
+            // 「書いてみませんか？」というプレースホルダー、または role="textbox" に対応
+            const bodySelector = '[role="textbox"], .note-common-editor__editable, [placeholder*="書いてみませんか"], .lavender-editor__content';
             await page.waitForSelector(bodySelector, { state: 'visible', timeout: 20000 });
             await page.click(bodySelector);
-            await page.keyboard.type(content.body, { delay: 10 }); // 1文字ずつ慎重に入力
+            await page.keyboard.type(content.body, { delay: 5 }); // 1文字ずつ確実に入力
 
             await page.waitForTimeout(5000); // 保存待ち
 
