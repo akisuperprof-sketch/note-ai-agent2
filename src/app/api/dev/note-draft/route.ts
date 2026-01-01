@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Auto-post is disabled by flags" }, { status: 503 });
         }
 
-        // --- 安全柵 3: 冪等性チェック (Article ID & Request ID) ---
+        // --- 安全柵 3: 冪等性チェック ---
         const allJobs = getAllJobs();
         if (allJobs.find(j => j.article_id === article_id && j.status === 'success')) {
             return NextResponse.json({ status: 'skipped', message: 'Article already posted' });
@@ -68,12 +68,7 @@ export async function POST(req: NextRequest) {
         };
 
         saveJob(job);
-
-        // 非同期で実行（Next.js Edge Runtimeなどでは工夫が必要だが、ここでは標準的なAPI環境を想定）
-        // 実際には 202 Accepted を返してバックグラウンドで処理するのが望ましいが、Next.js API Routesの制約内で同期的に実行する
-
         const result = await runNoteDraftAction(job, { title, body, tags, email, password });
-
         return NextResponse.json(result);
     } catch (e: any) {
         console.error(`[API] Fatal Crash:`, e);
@@ -99,18 +94,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         if (isServerless) {
             if (!BROWSERLESS_TOKEN) {
                 console.error("[Action] CRITICAL: BROWSERLESS_API_KEY is not set.");
-                throw new Error("APIキー(BROWSERLESS_API_KEY)が設定されていません。");
+                throw new Error("APIキーが設定されていません。");
             }
 
             job.last_step = 'S00b_connecting';
             saveJob(job);
             console.log(`[Action] Connecting to Browserless.io (CDP)...`);
 
-            // Browserless.io 推奨の CDP 接続を試行
             try {
                 browser = await playwright.connectOverCDP(
                     `wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`,
-                    { timeout: 15000 } // 15秒でタイムアウトさせる
+                    { timeout: 15000 }
                 );
             } catch (e: any) {
                 console.warn("[Action] CDP Connection failed, falling back to Playwright native...", e.message);
@@ -124,15 +118,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             browser = await playwright.launch({ headless: true });
         }
 
-        // 接続完了後の処理
-        console.log(`[Action] Browser connected/launched.`);
         const context = fs.existsSync(SESSION_FILE)
             ? await browser.newContext({ storageState: SESSION_FILE })
             : await browser.newContext();
 
         page = await context.newPage();
 
-        // スクショ用ディレクトリ作成
         if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
         const captureFailure = async (step: string, err: any) => {
@@ -141,8 +132,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             try {
                 if (page) {
                     await page.screenshot({ path: path.join(LOG_DIR, `${step}_${ts}_fail.png`) });
-                    const html = await page.content();
-                    fs.writeFileSync(path.join(LOG_DIR, `${step}_${ts}_fail.html`), html);
                 }
             } catch (e) { console.error("Failed to capture evidence", e); }
 
@@ -154,58 +143,37 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             saveJob(job);
         };
 
-        // S01: Load Session & Access Editor
-        console.log(`[Action] Loading editor page...`);
+        // S01: Load Session / Login Check
         job.last_step = 'S01_load_session';
         saveJob(job);
-        try {
-            await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 30000 });
-        } catch (e) {
-            await captureFailure('S01_load_session', e);
-            throw e;
-        }
+        console.log(`[Action] Loading session/editor...`);
+        await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 30000 });
 
-        // S03: Verify Login
-        job.last_step = 'S03_verify_login';
-        saveJob(job);
-
-        // ログインが必要な場合
-        if (page.url().includes('login')) {
-            console.log(`[Action] Login required. Attempting with credentials...`);
+        const isLoginPage = page.url().includes('note.com/login');
+        if (isLoginPage || !fs.existsSync(SESSION_FILE)) {
+            console.log(`[Action] Session invalid or not found. Attempting login...`);
             if (content.email && content.password) {
-                job.last_step = 'S02b_login_attempt';
-                saveJob(job);
-
                 try {
-                    // ログイン実行
-                    console.log(`[Action] Navigating to login page...`);
+                    job.last_step = 'S02b_login_attempt';
+                    saveJob(job);
                     await page.goto('https://note.com/login', { waitUntil: 'networkidle', timeout: 30000 });
 
-                    // メールアドレス入力欄が見つかるまで待機（複数の候補を試行）
-                    console.log(`[Action] Filling credentials...`);
                     const mailSelector = 'input[name="mail"], input[type="email"], #email';
                     await page.waitForSelector(mailSelector, { state: 'visible', timeout: 20000 });
-
                     await page.fill(mailSelector, content.email);
                     await page.fill('input[name="password"], input[type="password"]', content.password);
 
-                    // ログインボタンをクリック
                     const loginBtn = 'button:has-text("ログイン"), button[type="submit"]';
                     await page.click(loginBtn);
 
-                    // ログイン成功を待つ（エディタまたはトップページへ遷移）
-                    console.log(`[Action] Waiting for navigation after login...`);
                     await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 45000 });
 
-                    // セッションを保存して次回からログイン不要にする
                     const state = await context.storageState();
                     if (!fs.existsSync(path.dirname(SESSION_FILE))) {
                         fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                     }
                     fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                    // 再度エディタへ
-                    console.log(`[Action] Navigating back to editor...`);
                     await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 30000 });
                 } catch (e) {
                     await captureFailure('S02b_login_attempt', e);
@@ -218,71 +186,48 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
-        // S04: Fill Title
-        console.log(`[Action] Filling title...`);
-        job.last_step = 'S04_fill_title';
-        saveJob(job);
+        // S04: Content Input
         try {
-            await page.waitForSelector('.note-editor-v3__title-textarea', { timeout: 20000 });
-            await page.fill('.note-editor-v3__title-textarea', content.title);
-        } catch (e) {
-            await captureFailure('S04_fill_title', e);
-            throw e;
-        }
+            await page.waitForTimeout(5000);
 
-        // S05: Fill Body
-        console.log(`[Action] Filling body...`);
-        job.last_step = 'S05_fill_body';
-        saveJob(job);
-        try {
-            // noteのeditorは ProseMirror 等の複雑な構造の場合があるが、ここでは標準的な textarea/contenteditable を想定した簡易版
-            // 実際には [role="textbox"] や [contenteditable="true"] を狙う
-            const bodySelector = '.note-editor-v3__body-content [role="textbox"]';
-            await page.waitForSelector(bodySelector, { timeout: 20000 });
+            job.last_step = 'S04_fill_title';
+            saveJob(job);
+            console.log(`[Action] Filling title...`);
+            const titleSelector = '.note-editor-v3__title-textarea, textarea[placeholder="タイトル"], #note-title-input';
+            await page.waitForSelector(titleSelector, { state: 'visible', timeout: 30000 });
+            await page.fill(titleSelector, content.title);
+
+            job.last_step = 'S05_fill_body';
+            saveJob(job);
+            console.log(`[Action] Filling body...`);
+            const bodySelector = '.note-common-editor__editable, [role="textbox"], .lavender-editor__content';
+            await page.waitForSelector(bodySelector, { state: 'visible', timeout: 20000 });
             await page.click(bodySelector);
             await page.keyboard.type(content.body);
+
+            await page.waitForTimeout(5000); // 保存待ち
+
+            job.status = 'success';
+            job.finished_at = new Date().toISOString();
+            job.posted_at = new Date().toISOString();
+            job.note_url = page.url();
+            job.last_step = 'S99_complete';
+            saveJob(job);
+
+            await browser.close();
+            return { status: 'success', note_url: job.note_url };
         } catch (e) {
-            await captureFailure('S05_fill_body', e);
+            await captureFailure('S04_fill_content', e);
             throw e;
         }
 
-        // S07: Click Draft Save
-        console.log(`[Action] Clicking draft save...`);
-        job.last_step = 'S07_click_draft_save';
-        saveJob(job);
-        try {
-            // 「保存」または「下書き保存」ボタンを探す
-            const saveButton = page.getByRole('button', { name: /下書き保存|保存/ });
-            await saveButton.click();
-        } catch (e) {
-            await captureFailure('S07_click_draft_save', e);
-            throw e;
-        }
-
-        // S08: Confirm Saved
-        console.log(`[Action] Waiting for save confirmation...`);
-        job.last_step = 'S08_confirm_saved';
-        saveJob(job);
-        await page.waitForTimeout(5000); // 保存完了を余裕を持って待つ
-
-        // S09: Capture Result
-        job.last_step = 'S09_capture_result';
-        job.note_url = page.url();
-        job.status = 'success';
-        job.posted_at = new Date().toISOString();
-        job.finished_at = new Date().toISOString();
-        saveJob(job);
-        console.log(`[Action] Draft saved successfully: ${job.note_url}`);
-
-        await browser.close();
-        return job;
-
-    } catch (error: any) {
-        console.error("[Action] Fatal error during Note draft action:", error);
+    } catch (e: any) {
         if (browser) await browser.close();
-        job.status = 'failed';
-        job.error_message = error?.message || "Internal Server Error during browser automation";
-        saveJob(job);
-        return job;
+        console.error(`[Action] Fatal Error:`, e);
+        return {
+            status: 'failed',
+            error_message: e.message,
+            last_step: job.last_step
+        };
     }
 }
