@@ -6,9 +6,14 @@ import path from "path";
 import { DEV_SETTINGS, validateDevMode } from "@/lib/server/flags";
 import { getAllJobs, saveJob, NoteJob } from "@/lib/server/jobs";
 
-// 認証情報のパス
-const SESSION_FILE = path.join(process.cwd(), '.secret/note_session.json');
-const LOG_DIR = path.join(process.cwd(), '.gemini/data/logs');
+// 認証情報のパス（Vercel等の制限を回避するため、書き込みが必要な場合は /tmp を使用）
+const isServerless = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+const SESSION_FILE = isServerless
+    ? path.join('/tmp', 'note_session.json')
+    : path.join(process.cwd(), '.secret/note_session.json');
+const LOG_DIR = isServerless
+    ? path.join('/tmp', 'logs')
+    : path.join(process.cwd(), '.gemini/data/logs');
 
 export async function POST(req: NextRequest) {
     try {

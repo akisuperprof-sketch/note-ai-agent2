@@ -2,8 +2,10 @@
 import fs from 'fs';
 import path from 'path';
 
-// .gemini/data/note_jobs.json に保存
-const JOBS_FILE = path.join(process.cwd(), '.gemini/data/note_jobs.json');
+// 実行環境（Vercel等）の読み取り専用制限を回避するため、書き込み可能な /tmp フォルダを使用する
+const isServerless = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+const DATA_DIR = isServerless ? '/tmp' : path.join(process.cwd(), '.gemini/data');
+const JOBS_FILE = path.join(DATA_DIR, 'note_jobs.json');
 
 export type JobStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
