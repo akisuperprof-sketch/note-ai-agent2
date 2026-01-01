@@ -1097,11 +1097,13 @@ export default function Home() {
           const jobsData = await res.json();
           setJobs(jobsData);
 
+          // 最新の自分のジョブを探してログに追記（積み上げ表示）
           const myJob = Array.isArray(jobsData) ? jobsData.find((j: any) => j.request_id === requestId) : null;
           if (myJob) {
             setPostLogs(prev => {
               const base = `[STATUS] ${myJob.last_step || 'unknown'} (${myJob.status})`;
-              if (prev[prev.length - 1] !== base) {
+              // まだログに含まれていない新しいステップなら追加
+              if (!prev.includes(base)) {
                 return [...prev, base];
               }
               return prev;
