@@ -96,10 +96,26 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             job.last_step = 'S02_login';
             saveJob(job);
             if (content.email && content.password) {
-                await page.fill('input[type="email"], #email', content.email);
-                await page.fill('input[type="password"]', content.password);
-                await page.click('button:has-text("ログイン"), button[type="submit"]');
-                await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+                // Wait for any login input to be present
+                await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 15000 });
+
+                await page.fill('input[type="email"], input[name="mail"], #email', content.email);
+                await page.fill('input[type="password"], input[name="password"]', content.password);
+
+                // Find and click the login button by text or common selectors
+                const loginBtn = page.locator('button:has-text("ログイン"), button[type="submit"], .nc-login__submit-button').first();
+                await loginBtn.click();
+
+                // Wait for navigation or a successful login indicator (like the avatar or dashboard)
+                try {
+                    await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 20000 });
+                    console.log("[Action] Login redirect successful.");
+                } catch (e) {
+                    // Check if there's an error message on the page
+                    const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
+                    if (errorText) throw new Error(`ログインに失敗しました: ${errorText.trim()}`);
+                    throw new Error("ログイン後の遷移がタイムアウトしました。");
+                }
 
                 const state = await context.storageState();
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
@@ -107,7 +123,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' });
             } else {
-                throw new Error("Login required.");
+                throw new Error("Login required but credentials not provided.");
             }
         }
 
