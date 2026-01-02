@@ -162,8 +162,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         job.last_step = 'S03_find_selectors';
         saveJob(job);
 
-        // Wait for the editor to stabilize
-        await page.waitForTimeout(5000);
+        // Wait for the editor to stabilize with retry
+        console.log(`[Action] Waiting for editor elements... Current URL: ${page.url()}`);
+        const editorFound = await page.waitForSelector('textarea[placeholder="記事タイトル"], div.ProseMirror, [role="textbox"]', { timeout: 20000 }).catch(() => null);
+
+        if (!editorFound) {
+            console.warn("[Action] Editor elements not found within timeout. Trying to clear possible modals...");
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(1000);
+            await page.keyboard.press('Escape');
+        }
 
         const bestSelectors = await page.evaluate(() => {
             const getSelector = (el: Element) => {
@@ -173,13 +181,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 return null;
             };
 
-            const titleEl = document.querySelector('textarea[placeholder="記事タイトル"], h1[contenteditable="true"]');
-            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor');
+            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], h1[contenteditable="true"], input[placeholder*="タイトル"]');
+            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"]');
             const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存'));
 
             return {
-                title: titleEl ? (getSelector(titleEl) || 'textarea[placeholder="記事タイトル"]') : null,
-                body: bodyEl ? (getSelector(bodyEl) || 'div.ProseMirror[role="textbox"]') : null,
+                title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea[placeholder*="タイトル"]')) : null,
+                body: bodyEl ? (getSelector(bodyEl) || (bodyEl.classList.contains('ProseMirror') ? 'div.ProseMirror[role="textbox"]' : '.note-editor')) : null,
                 save: saveBtn ? 'button:has-text("下書き保存")' : null
             };
         });
@@ -187,7 +195,21 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${page.url()} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
+            const pageDump = await page.evaluate(() => {
+                const inputs = Array.from(document.querySelectorAll('input, textarea, [contenteditable], [role="textbox"]'))
+                    .map(el => ({
+                        tag: el.tagName,
+                        ph: el.getAttribute('placeholder'),
+                        text: (el as HTMLElement).innerText?.substring(0, 20),
+                        rect: el.getBoundingClientRect()
+                    }));
+                return {
+                    url: window.location.href,
+                    text: document.body.innerText.substring(0, 300).replace(/\n/g, ' '),
+                    inputs: inputs.filter(i => i.rect.width > 0).slice(0, 5)
+                };
+            });
+            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${page.url()} (T:${!!bestSelectors.title}, B:${!!bestSelectors.body}) Diagnostics: ${JSON.stringify(pageDump)}`);
         }
 
         const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
