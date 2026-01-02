@@ -293,7 +293,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 if (i === 1) {
                     update('🖱️ 画面全体をタップして起動を促します');
-                    for (let x = 0; x < 3; x++) await page.mouse.tap(100 + x * 100, 300 + x * 100).catch(() => { });
+                    for (let x = 0; x < 3; x++) {
+                        const px = 100 + x * 100;
+                        const py = 300 + x * 100;
+                        // Use touchscreen if available, otherwise fallback to mouse click
+                        await (page.touchscreen ? page.touchscreen.tap(px, py) : page.mouse.click(px, py)).catch(() => { });
+                    }
                 }
                 if (i === 2) {
                     update('🔄 認証を一度破棄して、クリーンな再開を試みます');
