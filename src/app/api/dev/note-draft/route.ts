@@ -153,7 +153,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                // Return to editor after login
+                // Step 2.5: Stabilize session by visiting main site first
+                update('S02c_セッション浸透 (進行中)');
+                await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
+                await page.waitForTimeout(1000);
+
+                // Now go to editor
+                update('S02d_エディタ移動 (進行中)');
                 await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
             } else {
                 throw new Error("Login required but credentials not provided.");
@@ -191,14 +197,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < 6; i++) {
             // Skeleton Detection
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
             if (tagCount < 50 && i > 0) {
                 update(`S03_空白検知 (Tags:${tagCount})`);
-                if (i === 3) await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-                if (i === 6) await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-                await page.waitForTimeout(3000);
+                if (i === 2) await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+                if (i === 4) await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                await page.waitForTimeout(2000);
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
@@ -207,10 +213,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 editorFound = true;
                 break;
             }
-            update(`S03_解析 (試行 ${i + 1}/9)`);
+            update(`S03_解析 (試行 ${i + 1}/6)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
-            if (i === 5) await page.keyboard.press('Escape');
+            if (i === 3) await page.keyboard.press('Escape');
         }
 
         const bestSelectors = await page.evaluate(() => {
