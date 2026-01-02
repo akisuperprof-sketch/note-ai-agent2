@@ -169,11 +169,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         job.last_step = 'S06_click_save';
         saveJob(job);
         try {
+            // "公開設定" button is usually the trigger for a stable draft state in the new editor
             const saveBtn = page.locator('button:has-text("公開設定"), button:has-text("保存"), button:has-text("完了")').first();
             if (await saveBtn.isVisible()) {
                 console.log(`[Action] Clicking Save/Publish button.`);
                 await saveBtn.click();
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(3000);
             }
         } catch (e) {
             console.warn(`[Action] Save button not found, relying on auto-save.`);
@@ -181,33 +182,36 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         job.last_step = 'S07_wait_save';
         saveJob(job);
-        console.log(`[Action] Waiting for URL transition...`);
+        console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
 
         try {
+            // New editor is on editor.note.com, old one on note.com
             await page.waitForURL((u: URL) => {
-                return u.href.includes('/edit') && !u.href.endsWith('/new');
-            }, { timeout: 15000 });
-            console.log(`[Action] Auto-save detected: ${page.url()}`);
+                const h = u.href;
+                return (h.includes('/edit') || h.includes('/notes/n')) && !h.endsWith('/new');
+            }, { timeout: 20000 });
+            console.log(`[Action] Save detected: ${page.url()}`);
         } catch (e) {
-            console.warn(`[Action] URL did not change from /new in 15s.`);
+            console.warn(`[Action] URL transition timeout. Final URL: ${page.url()}`);
         }
 
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(3000);
 
         job.status = 'success';
         job.finished_at = new Date().toISOString();
         const finalUrl = page.url();
         job.note_url = finalUrl;
 
+        // If it still says "/new", it means the post likely didn't persist as a draft with a unique ID
         if (finalUrl.endsWith('/new')) {
-            throw new Error("下書きURLの生成（保存確認）に失敗しました。");
+            throw new Error(`下書きURLの取得に失敗しました。現在のURL: ${finalUrl}`);
         }
 
         job.last_step = 'S99_complete';
         saveJob(job);
 
         await browser.close();
-        return { status: 'success', job_id: job.job_id, note_url: job.note_url };
+        return { status: 'success', job_id: job.job_id, note_url: job.note_url, last_step: job.last_step };
 
     } catch (e: any) {
         await captureFailure(job.last_step || 'FATAL', e);

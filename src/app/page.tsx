@@ -925,7 +925,7 @@ export default function Home() {
   const [appMode, setAppMode] = useState<"production" | "development">("production");
   const [postedArticles, setPostedArticles] = useState<Set<string>>(new Set());
   const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
-  const [postLogs, setPostLogs] = useState<string[]>([]);
+  const [postLogs, setPostLogs] = useState<{ text: string, time: string }[]>([]);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState("0:00");
   const [notePostConsoleUrl, setNotePostConsoleUrl] = useState("");
@@ -974,16 +974,15 @@ export default function Home() {
           </div>
           <div className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[250px] overflow-y-auto font-mono text-[11px] scrollbar-hide">
             {postLogs.map((log, i) => {
-              const timeStr = new Date().toLocaleTimeString('ja-JP', { hour12: false });
               return (
                 <div key={i} className="flex gap-4 group animate-in slide-in-from-left-2 duration-300">
-                  <span className="text-white/10 group-last:text-white/30 transition-colors whitespace-nowrap">{timeStr}</span>
+                  <span className="text-white/10 group-last:text-white/30 transition-colors whitespace-nowrap">{log.time}</span>
                   <span className={`
-                    ${log.includes('[START]') ? 'text-orange-400 font-bold' : ''}
-                    ${log.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
-                    ${log.includes('[ERROR]') ? 'text-red-400' : 'text-white/60'}
+                    ${log.text.includes('[START]') ? 'text-orange-400 font-bold' : ''}
+                    ${log.text.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
+                    ${log.text.includes('[ERROR]') ? 'text-red-400' : 'text-white/60'}
                   `}>
-                    {log.replace(/\[.*\]\s*/, '')}
+                    {log.text.replace(/\[.*\]\s*/, '')}
                   </span>
                 </div>
               );
@@ -1166,14 +1165,14 @@ export default function Home() {
     const safety = checkSafetyLock(articleId);
     if (!safety.safe) {
       setPostStatus("stopped");
-      setPostLogs(prev => [...prev, `[STOP] 安全装置作動: ${safety.reason}`]);
+      setPostLogs(prev => [...prev, { text: `[STOP] 安全装置作動: ${safety.reason}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       return;
     }
 
     if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※Vercel環境ではBrowserless.ioの設定が必要です")) return;
 
     setPostStatus("posting");
-    setPostLogs([`[START] 下書き保存開始`]);
+    setPostLogs([{ text: `[START] 下書き保存開始`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
     setStartTime(Date.now());
     setElapsedTime("0:00");
 
@@ -1190,8 +1189,8 @@ export default function Home() {
           if (myJob) {
             setPostLogs(prev => {
               const base = `[STATUS] ${myJob.last_step || 'unknown'}`;
-              if (!prev.find(p => p.includes(base))) {
-                return [...prev, base];
+              if (!prev.find(p => p.text.includes(base))) {
+                return [...prev, { text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }];
               }
               return prev;
             });
@@ -1238,19 +1237,20 @@ export default function Home() {
       if (res.status === 200 && data.status === "success") {
         setPostStatus("success");
         setPostedArticles(prev => new Set(prev).add(articleId));
-        setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`]);
+        setPostLogs(prev => [...prev, { text: `[SUCCESS] 下書き保存完了`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
         if (data.note_url) setNotePostConsoleUrl(data.note_url);
       } else {
         setPostStatus("error");
         const msg = data.error_message || data.error || "詳細不明のエラー";
-        setPostLogs(prev => [...prev, `[ERROR] ${msg}`]);
+        const step = data.last_step ? ` (${data.last_step})` : "";
+        setPostLogs(prev => [...prev, { text: `[ERROR] ${msg}${step}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       }
       fetchJobs();
     } catch (e: any) {
       clearInterval(pollInterval);
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
-      setPostLogs(prev => [...prev, `[ERROR] ${errorMsg}`]);
+      setPostLogs(prev => [...prev, { text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
     }
   };
 
