@@ -107,18 +107,23 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 1000 },
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            viewport: { width: 390, height: 844 },
+            deviceScaleFactor: 3,
+            isMobile: true,
+            hasTouch: true,
             locale: 'ja-JP',
             timezoneId: 'Asia/Tokyo',
             extraHTTPHeaders: {
-                'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7'
+                'Accept-Language': 'ja-JP,ja;q=0.9'
             }
         });
 
-        // Stealth: Hide webdriver property
+        // Stealth: Hide webdriver property and simulate touch environment
         await context.addInitScript(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            (window as any).chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja'] });
         });
 
         if (fs.existsSync(SESSION_FILE)) {
@@ -127,8 +132,20 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         page = await context.newPage();
-        await page.setDefaultTimeout(15000);
-        update('🚀 サイトへ移動しました。画面の準備を待っています...');
+
+        // --- Technical Audit: Capture Failures ---
+        page.on('requestfailed', request => {
+            const url = request.url();
+            if (url.includes('note.com') && (url.endsWith('.js') || url.includes('api'))) {
+                console.log(`[Network Failure] ${url} - ${request.failure()?.errorText}`);
+            }
+        });
+        page.on('console', msg => {
+            if (msg.type() === 'error') console.log(`[JS Error] ${msg.text()}`);
+        });
+
+        await page.setDefaultTimeout(20000);
+        update('🚀 モバイルモードでサイトへ向かっています...');
         // Human Observational Wait: Sit still after initial navigation
         await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
         await page.waitForTimeout(8000); // 8s wait to look like a human reading the home page
@@ -237,26 +254,28 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ 画面がまだ静止しています... (状態:${diag.tags})`);
+                update(`⏳ 画面が固まっています (Tags:${diag.tags})。解析中...`);
+                // Check for console errors or blocked scripts in diag or page state
+                const errorLog = await page.evaluate(() => {
+                    const scripts = Array.from(document.querySelectorAll('script[src]')).map((s: any) => s.src.substring(0, 40));
+                    return `Scripts found: ${scripts.length}`;
+                });
+                update(`🔍 通信チェック: ${errorLog}`);
+
                 if (i === 1) {
-                    update('🖱️ 画面を一度クリックして反応を確かめます');
-                    await page.mouse.click(640, 500).catch(() => { });
+                    update('🖱️ 画面をタップして刺激を与えます');
+                    await page.mouse.tap(200, 400).catch(() => { });
                 }
                 if (i === 2) {
-                    update('🔄 意識的にページを更新して再読み込みさせます');
+                    update('🔄 ページを再読み込みして再試行します');
                     await page.reload({ waitUntil: 'load' }).catch(() => { });
                 }
-                if (i === 3) {
-                    update('📜 画面をスクロールして要素の出現を待ちます');
-                    await page.mouse.wheel(0, 300);
-                    await page.waitForTimeout(1000);
-                    await page.mouse.wheel(0, -300);
-                }
                 if (i === 4) {
-                    update('⚡ 最終手段として、別ルートで切り込みます');
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                    update('⚡ 認証をリセットしてアクセスし直します');
+                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
+                    await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
                 }
-                await page.waitForTimeout(6000); // Decent wait to let JS react
+                await page.waitForTimeout(6000);
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
