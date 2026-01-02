@@ -937,7 +937,15 @@ export default function Home() {
     const savedStatus = sessionStorage.getItem('note_post_status');
     const savedUrl = sessionStorage.getItem('note_post_url');
     if (saved) setPostLogs(JSON.parse(saved));
-    if (savedStatus && savedStatus !== 'idle') setPostStatus(savedStatus as any);
+
+    // Only auto-restore 'posting' status to avoid confusion with old errors
+    if (savedStatus === 'posting') {
+      setPostStatus('posting');
+      setStartTime(Date.now()); // Approximate
+    } else if (savedStatus && savedStatus !== 'idle') {
+      // Just keep the logs, but keep status idle so buttons show
+      setPostStatus('idle');
+    }
     if (savedUrl) setNotePostConsoleUrl(savedUrl);
   }, []);
 
@@ -981,11 +989,13 @@ export default function Home() {
               <button
                 onClick={() => {
                   setPostStatus('idle');
+                  setPostLogs([]);
                   sessionStorage.clear();
                 }}
-                className="text-[10px] text-white/40 hover:text-white border border-white/10 px-2 py-1 rounded"
+                className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-all"
               >
-                Reset
+                <RotateCcw size={12} />
+                ログをクリアして再試行
               </button>
             )}
             <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
@@ -1195,6 +1205,8 @@ export default function Home() {
 
     setPostStatus("posting");
     setPostLogs([{ text: `[START] 下書き保存開始`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+    sessionStorage.removeItem('note_post_logs');
+    sessionStorage.removeItem('note_post_status');
     setStartTime(Date.now());
     setElapsedTime("0:00");
 
@@ -1809,57 +1821,61 @@ export default function Home() {
               </div>
 
               <div className="flex flex-col gap-3">
-                {postStatus !== "idle" ? (
-                  <NotePostConsole />
-                ) : (
-                  <>
-                    {/* Login Credentials Inputs */}
-                    <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
-                      <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <div className="relative">
-                          <input
-                            type="email"
-                            placeholder="Email"
-                            value={noteEmail}
-                            onChange={e => setNoteEmail(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
-                          />
-                        </div>
-                        <div className="relative flex items-center">
-                          <input
-                            type={showPass ? "text" : "password"}
-                            placeholder="Password"
-                            value={notePassword}
-                            onChange={e => setNotePassword(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
-                          />
-                          <button
-                            onClick={() => setShowPass(!showPass)}
-                            className="absolute right-2 text-white/40 hover:text-white transition-colors"
-                          >
-                            {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
-                          </button>
+                <div className="flex flex-col gap-4">
+                  {/* Always show console if not idle to track history/errors */}
+                  {postStatus !== "idle" && <NotePostConsole />}
+
+                  {/* Always show inputs and buttons unless actively posting */}
+                  {postStatus !== "posting" && (
+                    <>
+                      {/* Login Credentials Inputs */}
+                      <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
+                        <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <div className="relative">
+                            <input
+                              type="email"
+                              placeholder="Email"
+                              value={noteEmail}
+                              onChange={e => setNoteEmail(e.target.value)}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
+                            />
+                          </div>
+                          <div className="relative flex items-center">
+                            <input
+                              type={showPass ? "text" : "password"}
+                              placeholder="Password"
+                              value={notePassword}
+                              onChange={e => setNotePassword(e.target.value)}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
+                            />
+                            <button
+                              onClick={() => setShowPass(!showPass)}
+                              className="absolute right-2 text-white/40 hover:text-white transition-colors"
+                            >
+                              {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => handleDraftPost(false)}
-                        className="py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
-                      >
-                        <Send size={18} /> 本番投稿
-                      </button>
-                      <button
-                        onClick={() => handleDraftPost(true)}
-                        className="py-4 rounded-2xl border-2 border-dashed border-white/20 text-white/40 font-bold flex items-center justify-center gap-3 hover:border-white/40 hover:text-white transition-all text-sm uppercase tracking-widest"
-                      >
-                        <Pen size={16} /> ダミー投稿テスト
-                      </button>
-                    </div>
-                  </>
-                )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleDraftPost(false)}
+                          className="py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
+                        >
+                          <Send size={18} /> 本番投稿
+                        </button>
+                        <button
+                          onClick={() => handleDraftPost(true)}
+                          className="py-4 rounded-2xl border-2 border-dashed border-white/20 text-white/40 font-bold flex items-center justify-center gap-3 hover:border-white/40 hover:text-white transition-all text-sm uppercase tracking-widest"
+                        >
+                          <Pen size={16} /> ダミー投稿テスト
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Job History removed as redundancy; processing logs provide real-time status */}
