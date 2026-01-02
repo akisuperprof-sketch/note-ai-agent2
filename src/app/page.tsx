@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Play, Check, Copy, AlertCircle, X, ChevronRight, HelpCircle,
   RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus,
-  Eye, BarChart3, Download, Search,
+  Eye, BarChart3, Download, Search, Zap,
   AlertTriangle, // Added for Dev Mode Warning
   Send, // Added for Post Button
   Pen, FileText, Terminal, ExternalLink
@@ -1071,6 +1071,50 @@ export default function Home() {
   // No longer auto-scrolling to bottom since newest is on top
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // Semi-Auto Magic Code Generator
+  const generateMagicCode = () => {
+    // Escaping for JS injection
+    const escapedTitle = displayTitle.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const escapedBody = articleText.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+
+    return `(async () => {
+  console.log('%c🐾 note AI Agent: Magic Injector Starting...', 'color: #ff8c00; font-weight: bold; font-size: 14px;');
+  
+  const title = "${escapedTitle}";
+  const body = \`${escapedBody}\`;
+  
+  function findEl(selectors) {
+    for (let s of selectors) {
+      const el = document.querySelector(s);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  const titleEl = findEl(['textarea[placeholder="記事タイトル"]', '.note-editor-title textarea']);
+  const bodyEl = findEl(['div.ProseMirror[role="textbox"]', '.ProseMirror', '.note-editor-body']);
+
+  if (!titleEl || !bodyEl) {
+    alert('❌ noteのエディタ画面が見つかりません。新規記事作成画面（editor.note.com/...）を開いてから実行してください。');
+    return;
+  }
+
+  // Inject Title
+  titleEl.focus();
+  document.execCommand('insertText', false, title);
+  console.log('✅ Title injected.');
+
+  await new Promise(r => setTimeout(r, 800));
+
+  // Inject Body
+  bodyEl.focus();
+  document.execCommand('insertText', false, body);
+  console.log('✅ Body injected.');
+
+  alert('✨ 成功しました！パンダが記事の流し込みを完了しました。');
+})();`;
+  };
+
   // Helper: Canvas Image Composition (Client-side)
   const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
     try {
@@ -1208,12 +1252,20 @@ export default function Home() {
       return;
     }
 
-    if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※Vercel環境ではBrowserless.ioの設定が必要です")) return;
+    // Confirm only if not a test or if not in development mode (to avoid accidental production posts)
+    if (!isTest && appMode === "production") {
+      if (!confirm("noteへ実際に「下書き」保存を実行します。よろしいですか？")) return;
+    }
 
     setPostStatus("posting");
-    setPostLogs([{ text: `[START] 下書き保存開始`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
-    sessionStorage.removeItem('note_post_logs');
-    sessionStorage.removeItem('note_post_status');
+    // Completely reset logs and storage for this new trial
+    const startLog = { text: `[START] ${isTest ? 'テスト投稿' : '本番投稿'}を開始します`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) };
+    setPostLogs([startLog]);
+    sessionStorage.setItem('note_post_logs', JSON.stringify([startLog]));
+    sessionStorage.setItem('note_post_status', 'posting');
+    sessionStorage.removeItem('note_post_url');
+    setNotePostConsoleUrl("");
+
     setStartTime(Date.now());
     setElapsedTime("0:00");
 
@@ -1578,7 +1630,6 @@ export default function Home() {
 
         const finalMeta = paragraphs.find(p => p.length > 50)?.substring(0, 120) + "..." || "";
 
-        setStatus("done");
         saveToHistory({
           displayTitle: extractedTitle,
           articleText: fullText,
@@ -1589,6 +1640,8 @@ export default function Home() {
           hashtags: currentHashtags,
           inputs: data
         });
+
+        setStatus("done");
         window.scrollTo({ top: 0, behavior: "smooth" });
         await addLog("カンペキです！", 500);
 
@@ -1855,12 +1908,63 @@ export default function Home() {
                   {/* Always show console if not idle to track history/errors */}
                   {postStatus !== "idle" && <NotePostConsole />}
 
-                  {/* Always show inputs and buttons unless actively posting */}
-                  {postStatus !== "posting" && (
+                  {/* Only show Note Post / Semi-Auto UI if article is generated AND not currently posting */}
+                  {status === "done" && postStatus !== "posting" && (
                     <>
+                      {/* Semi-Auto Magic Injector (New Section) */}
+                      <div className="space-y-3 bg-orange-500/10 p-4 rounded-2xl border border-orange-500/30 shadow-xl">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-lg animate-bounce">
+                            🪄
+                          </div>
+                          <div>
+                            <div className="text-xs font-black text-orange-400 uppercase tracking-tighter">Recommended / 確実な方法</div>
+                            <div className="text-[14px] font-black text-white">半自動「魔法のコード」流し込み</div>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-orange-200/70 leading-relaxed italic">
+                          ボット検知を完全に回避し、100%確実に下書きを完成させる「職人技」プランです。
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <button
+                            onClick={() => window.open('https://note.com/notes/new', '_blank')}
+                            className="flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold text-white transition-all border border-white/10"
+                          >
+                            <ExternalLink size={14} /> 1. エディタを開く
+                          </button>
+                          <button
+                            onClick={() => {
+                              const script = generateMagicCode();
+                              navigator.clipboard.writeText(script);
+                              alert("✨ 魔法のコードをコピーしました！\n\nnoteの画面で F12キーを押して「Console」タブに貼り付けてください。");
+                            }}
+                            className="flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-xs font-black text-white transition-all shadow-lg"
+                          >
+                            <Zap size={14} /> 2. 魔法のコードをコピー
+                          </button>
+                        </div>
+
+                        <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-2">
+                          <div className="text-[9px] font-bold text-white/40 uppercase">使い方</div>
+                          <ol className="text-[10px] text-white/60 space-y-1 list-decimal list-inside">
+                            <li>上のボタンで <span className="text-white font-bold">noteエディタ</span> を開きます</li>
+                            <li><span className="text-white font-bold">魔法のコード</span> をコピーします</li>
+                            <li>noteの画面で <span className="text-orange-400 font-bold">F12キー</span> (または右クリック→検証) を押します</li>
+                            <li><span className="text-white font-bold">「Console」</span> タブを選び、コードを貼り付けて <span className="text-white font-bold">Enter</span>！</li>
+                          </ol>
+                        </div>
+                      </div>
+
+                      <div className="relative py-2">
+                        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/10"></span></div>
+                        <div className="relative flex justify-center text-[9px] uppercase font-black text-white/20 bg-[#0A0A0A] px-4 tracking-widest">OR (Experimental Full-Auto)</div>
+                      </div>
+
                       {/* Login Credentials Inputs */}
-                      <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
-                        <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
+                      <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10 opacity-60 hover:opacity-100 transition-opacity">
+                        <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Full-Auto Credentials (Experimental)</div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           <div className="relative">
                             <input
@@ -1887,6 +1991,15 @@ export default function Home() {
                             </button>
                           </div>
                         </div>
+                        <button
+                          onClick={() => {
+                            setAppMode("development");
+                            handleDraftPost(true); // Instant Start Debug Mode
+                          }}
+                          className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95"
+                        >
+                          開発モードで即時テスト開始
+                        </button>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
