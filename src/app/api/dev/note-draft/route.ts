@@ -165,9 +165,23 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.keyboard.press('Escape');
         }
 
-        job.last_step = 'S06_wait_save';
+        // 5. 保存ボタンを明示的にクリック（確実な保存を促す）
+        job.last_step = 'S06_click_save';
         saveJob(job);
-        console.log(`[Action] Waiting for URL transition (auto-save)...`);
+        try {
+            const saveBtn = page.locator('button:has-text("公開設定"), button:has-text("保存"), button:has-text("完了")').first();
+            if (await saveBtn.isVisible()) {
+                console.log(`[Action] Clicking Save/Publish button.`);
+                await saveBtn.click();
+                await page.waitForTimeout(2000);
+            }
+        } catch (e) {
+            console.warn(`[Action] Save button not found, relying on auto-save.`);
+        }
+
+        job.last_step = 'S07_wait_save';
+        saveJob(job);
+        console.log(`[Action] Waiting for URL transition...`);
 
         try {
             await page.waitForURL((u: URL) => {
