@@ -1269,7 +1269,11 @@ export default function Home() {
       }
 
       if (res.status === 200 && (data.status === "success" || data.status === "pending")) {
-        console.log("Job initiated:", data.job_id);
+        console.log("Job status:", data.status, data.job_id);
+        if (data.status === "success") {
+          setPostStatus("success");
+          setPostLogs(prev => [...prev, { text: `S99 (完了)`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+        }
         if (data.note_url) setNotePostConsoleUrl(data.note_url);
       } else {
         clearInterval(pollInterval);

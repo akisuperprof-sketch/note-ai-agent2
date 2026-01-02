@@ -12,7 +12,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const jobs = getAllJobs();
-    console.log(`[API] Found ${jobs.length} jobs.`);
-    return NextResponse.json(jobs);
+    try {
+        const jobs = getAllJobs();
+        console.log(`[API] note-jobs: Retrieved ${jobs.length} jobs.`);
+        return NextResponse.json(jobs);
+    } catch (e) {
+        console.error("[API Error] note-jobs:", e);
+        return NextResponse.json({ error: "Failed to fetch jobs" }, { status: 500 });
+    }
 }

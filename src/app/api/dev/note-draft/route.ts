@@ -39,14 +39,10 @@ export async function POST(req: NextRequest) {
 
         saveJob(job);
 
-        // Start the process in the background (Don't await)
-        // Note: In Vercel, the function might be suspended after return unless using waitUntil
-        // but for now, we return immediately to prevent 504 on the client.
-        runNoteDraftAction(job, { title, body, email, password }).catch(err => {
-            console.error("[Background Job Error]:", err);
-        });
-
-        return NextResponse.json({ status: 'pending', job_id: job.job_id });
+        // Await the action to prevent Vercel from killing the process.
+        // We optimize the internal timeouts to stay within 60s.
+        const result = await runNoteDraftAction(job, { title, body, email, password });
+        return NextResponse.json(result);
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
@@ -95,7 +91,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         job.last_step = 'S01_INIT (進行中)';
         saveJob(job);
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Faster timeout and wait strategy
+        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {
+            console.warn("[Action] S01 navigation timed out, but proceeding to check if page loaded.");
+        });
         job.last_step = 'S01 (完了)';
         saveJob(job);
 
@@ -104,32 +103,27 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             job.last_step = 'S02_LOGIN (進行中)';
             saveJob(job);
             if (content.email && content.password) {
-                // Wait for any login input to be present
-                await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 15000 });
-
+                await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
                 await page.fill('input[type="password"], input[name="password"]', content.password);
 
-                // Find and click the login button by text or common selectors
                 const loginBtn = page.locator('button:has-text("ログイン"), button[type="submit"], .nc-login__submit-button').first();
                 await loginBtn.click();
 
-                // Wait for navigation or a successful login indicator
                 try {
-                    await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 20000 });
+                    await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 10000 });
                     console.log(`[Action] Login successful. URL: ${page.url()}`);
                 } catch (e) {
-                    // Check if there's an error message on the page
                     const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
                     if (errorText) throw new Error(`ログインに失敗しました: ${errorText.trim()}`);
-                    throw new Error("ログイン後の遷移がタイムアウトしました。アカウント情報を再確認してください。");
+                    throw new Error("ログイン後の遷移がタイムアウトしました。");
                 }
 
                 const state = await context.storageState();
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' });
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
             } else {
                 throw new Error("Login required but credentials not provided.");
             }
@@ -146,24 +140,18 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             console.warn("[Diagnostic] Could not determine user name.");
         }
 
-        job.last_step = 'S02b_bypass_tutorials';
+        // Tutorial Bypass (Minimized wait)
+        job.last_step = 'S02b_MODAL (進行中)';
         saveJob(job);
         try {
-            // Wait a bit for potential overlays to appear
-            await page.waitForTimeout(2000);
-            const overlaySelectors = [
-                'button:has-text("次へ")',
-                'button:has-text("閉じる")',
-                '.nc-tutorial-modal__close',
-                '.nc-survey-modal__close',
-                'div[aria-label="閉じる"]'
-            ];
+            await page.waitForTimeout(1000);
+            const overlaySelectors = ['button:has-text("次へ")', 'button:has-text("閉じる")', '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]'];
             for (const sel of overlaySelectors) {
                 const btn = page.locator(sel).first();
                 if (await btn.isVisible()) {
                     console.log(`[Action] Closing overlay: ${sel}`);
                     await btn.click();
-                    await page.waitForTimeout(500);
+                    await page.waitForTimeout(300);
                 }
             }
         } catch (e) {
@@ -173,15 +161,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         job.last_step = 'S03_解析 (進行中)';
         saveJob(job);
 
-        // Wait for the editor to stabilize with retry
+        // Wait for editor with slightly reduced timeout
         console.log(`[Action] Waiting for editor elements... Current URL: ${page.url()}`);
-        const editorFound = await page.waitForSelector('textarea[placeholder="記事タイトル"], div.ProseMirror, [role="textbox"]', { timeout: 20000 }).catch(() => null);
+        const editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 12000 }).catch(() => null);
 
         if (!editorFound) {
             console.warn("[Action] Editor elements not found within timeout. Trying to clear possible modals...");
+            // Last ditch effort: press escape and wait 2 more seconds
             await page.keyboard.press('Escape');
-            await page.waitForTimeout(1000);
-            await page.keyboard.press('Escape');
+            await page.waitForTimeout(2000);
         }
 
         const bestSelectors = await page.evaluate(() => {
