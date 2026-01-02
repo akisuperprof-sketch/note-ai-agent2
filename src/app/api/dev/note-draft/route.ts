@@ -165,15 +165,25 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         update('S03_解析 (進行中)');
 
-        // Faster editor detection
-        let editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 8000 }).catch(() => null);
+        // Wait for Note's SPA redirect to editor.note.com
+        update('S03_待機 (リダイレクト中)');
+        await page.waitForURL((u: URL) => u.host.includes('editor.note.com') || u.pathname.includes('/edit'), { timeout: 15000 }).catch(() => {
+            console.warn("[Action] Redirect to editor did not finish, but checking DOM anyway.");
+        });
 
-        if (!editorFound) {
-            console.warn("[Action] Quick fallback for S03...");
-            await page.keyboard.press('Escape');
-            await page.mouse.click(500, 300).catch(() => { });
-            await page.waitForTimeout(1000);
-            editorFound = await page.waitForSelector('textarea, [role="textbox"]', { timeout: 4000 }).catch(() => null);
+        // Patiently poll for elements (Note's editor is heavy)
+        let editorFound = false;
+        for (let i = 0; i < 6; i++) {
+            const el = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 4000 }).catch(() => null);
+            if (el) {
+                editorFound = true;
+                break;
+            }
+            update(`S03_解析 (試行 ${i + 1}/6)`);
+            if (i === 2) {
+                await page.keyboard.press('Escape');
+                await page.mouse.click(500, 300).catch(() => { });
+            }
         }
 
         const bestSelectors = await page.evaluate(() => {
@@ -198,22 +208,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            const pageDump = await page.evaluate(() => {
-                const inputs = Array.from(document.querySelectorAll('input, textarea, [contenteditable], [role="textbox"]'))
-                    .map(el => ({
-                        tag: el.tagName,
-                        ph: el.getAttribute('placeholder'),
-                        aria: el.getAttribute('aria-label'),
-                        rect: el.getBoundingClientRect()
-                    }));
-                return {
-                    url: window.location.href,
-                    title: document.title,
-                    text: document.body.innerText.substring(0, 200).replace(/\n/g, ' '),
-                    inputs: inputs.filter(i => i.rect.width > 0).slice(0, 8)
-                };
-            });
-            throw new Error(`入力欄が見つかりません(S03)。URL: ${page.url()} Dump: ${JSON.stringify(pageDump)}`);
+            throw new Error(`入力欄が見つかりません(S03)。URL: ${page.url().substring(0, 50)}`);
         }
 
         update('S03 (完了)');
