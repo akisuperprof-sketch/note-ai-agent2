@@ -149,7 +149,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 await context.addCookies(savedData.cookies);
                 if (savedData.origins) {
                     // Inject local storage if present
-                    await context.addInitScript((data) => {
+                    await context.addInitScript((data: any) => {
                         data.origins.forEach((origin: any) => {
                             origin.localStorage.forEach((item: any) => {
                                 window.localStorage.setItem(item.name, item.value);
@@ -165,13 +165,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         page = await context.newPage();
 
         // --- Technical Audit: Capture Failures ---
-        page.on('requestfailed', request => {
+        page.on('requestfailed', (request: any) => {
             const url = request.url();
             if (url.includes('note.com') && (url.endsWith('.js') || url.includes('api'))) {
                 console.log(`[Network Failure] ${url} - ${request.failure()?.errorText}`);
             }
         });
-        page.on('console', msg => {
+        page.on('console', (msg: any) => {
             if (msg.type() === 'error') console.log(`[JS Error] ${msg.text()}`);
         });
 
