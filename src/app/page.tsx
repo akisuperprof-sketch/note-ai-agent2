@@ -896,6 +896,53 @@ function HistoryList({
   );
 }
 
+// --- Mobile Copy Helper ---
+function MobileCopyHelper({ title, body, tags }: { title: string, body: string, tags: string[] }) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const copy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] md:hidden w-[90%] max-w-[400px]">
+      <div className="glass-card bg-[#1A1A1A]/95 backdrop-blur-2xl border border-orange-500/30 rounded-[32px] p-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between gap-3 border shadow-orange-500/10 scale-100 animate-in fade-in slide-in-from-bottom-8 duration-500">
+        <div className="flex-1 flex gap-2 overflow-x-auto scrollbar-hide py-1">
+          <button
+            onClick={() => copy(title, 'タイトル')}
+            className={cn("px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-tighter transition-all shrink-0 border", copied === 'タイトル' ? "bg-green-500 border-green-400 text-white" : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10")}
+          >
+            {copied === 'タイトル' ? "OK!" : "タイトル"}
+          </button>
+          <button
+            onClick={() => copy(body, '本文')}
+            className={cn("px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-tighter transition-all shrink-0 border", copied === '本文' ? "bg-green-500 border-green-400 text-white" : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10")}
+          >
+            {copied === '本文' ? "OK!" : "本文"}
+          </button>
+          <button
+            onClick={() => copy(tags.join(" "), 'タグ')}
+            className={cn("px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-tighter transition-all shrink-0 border", copied === 'タグ' ? "bg-green-500 border-green-400 text-white" : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10")}
+          >
+            {copied === 'タグ' ? "OK!" : "タグ"}
+          </button>
+        </div>
+        <div className="w-[1px] h-8 bg-white/10 shrink-0" />
+        <button
+          onClick={() => window.open('https://note.com/notes/new', '_blank')}
+          className="bg-gradient-to-br from-orange-400 to-red-500 text-white p-4 rounded-full shadow-lg shadow-orange-500/20 active:scale-90 hover:scale-105 transition-all shrink-0 border border-white/20"
+        >
+          <div className="w-5 h-5 flex items-center justify-center">
+            <Pen size={20} />
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Page Updated Logic ---
 
 export default function Home() {
@@ -1141,15 +1188,16 @@ export default function Home() {
       if (type === 'eyecatch') {
         // Eyecatch Style: Bold Title Overlay
         if (inputs?.showEyecatchTitle !== false) {
-          // Gradient Background at bottom
-          const grad = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
+          // Gradient Background at bottom (Bottom 1/3)
+          const grad = ctx.createLinearGradient(0, canvas.height * 0.66, 0, canvas.height);
           grad.addColorStop(0, "rgba(0,0,0,0)");
-          grad.addColorStop(1, "rgba(0,0,0,0.85)");
+          grad.addColorStop(1, "rgba(0,0,0,0.9)");
           ctx.fillStyle = grad;
-          ctx.fillRect(0, canvas.height * 0.5, canvas.width, canvas.height * 0.5);
+          ctx.fillRect(0, canvas.height * 0.66, canvas.width, canvas.height * 0.34);
 
-          // Text Settings
-          ctx.font = "bold 80px 'Hiragino Mincho ProN', 'Yu Mincho', serif";
+          // Text Settings (Standard Responsive Size)
+          const fontSize = Math.floor(canvas.width * 0.05); // Dynamic font size (~5-6% of width)
+          ctx.font = `bold ${fontSize}px 'Hiragino Mincho ProN', 'Yu Mincho', serif`;
           ctx.fillStyle = "#ffffff";
           ctx.textAlign = "center";
           ctx.textBaseline = "bottom";
@@ -1470,6 +1518,7 @@ export default function Home() {
     setInputs(data);
     setStatus("outline");
     setLogs([]);
+    setArticleText(""); // Critical: Reset text state
     setInlineHeading("");
     setInlineImages([]);
     setMetaDescription("");
@@ -1700,6 +1749,50 @@ export default function Home() {
     setIsGeneratingInlines(false);
   };
 
+  const handleRetryInline = async (heading: string) => {
+    try {
+      const imgRes = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: heading,
+          articleText: "Regenerating focused content for: " + heading,
+          visualStyle: inputs.visualStyle,
+          character: inputs.character,
+          referenceImage: inputs.referenceImage,
+          promptOverride: `High quality ${inputs.visualStyle} illustration of ${inputs.character === '指定なし' ? 'a relevant object' : inputs.character} representing the concept of "${heading}", textless, centered composition.`
+        }),
+      });
+      const imgData = await imgRes.json();
+      if (imgRes.ok && imgData.imageUrl) {
+        const newImages = inlineImages.map((img: { heading: string, url: string }) =>
+          img.heading === heading ? { ...img, url: imgData.imageUrl } : img
+        );
+        if (!newImages.find((img: { heading: string, url: string }) => img.heading === heading)) {
+          newImages.push({ heading, url: imgData.imageUrl });
+        }
+        setInlineImages(newImages);
+        setInlineErrors(prev => prev.filter(e => e.heading !== heading));
+
+        // Sync with history if needed
+        saveToHistory({
+          displayTitle,
+          articleText,
+          generatedImage,
+          inlineImages: newImages,
+          score,
+          metaDescription,
+          hashtags,
+          inputs
+        });
+      } else {
+        alert("画像の再生成に失敗しました: " + (imgData.error || "不明なエラー"));
+      }
+    } catch (e) {
+      alert("通信エラーが発生しました");
+    }
+  };
+
   const handleRetryEyecatch = async () => {
     if (!inputs || !displayTitle) return;
     setEyecatchError(null);
@@ -1726,40 +1819,6 @@ export default function Home() {
       }
     } catch (e) {
       setEyecatchError("通信エラーが発生しました");
-    }
-  };
-
-  const handleRetryInline = async (heading: string) => {
-    if (!inputs) return;
-    setInlineErrors(prev => prev.filter(e => e.heading !== heading));
-
-    // Optimistic UI update: Show a loading state or similar if needed but for now clear error
-
-    try {
-      const imgRes = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: heading,
-          articleText: "Demonstration of: " + heading,
-          visualStyle: inputs.visualStyle,
-          character: inputs.character,
-          referenceImage: inputs.referenceImage,
-          promptOverride: `High quality ${inputs.visualStyle} illustration of ${inputs.character === '指定なし' ? 'a cozy object' : inputs.character} representing "${heading}", clear details, professional composition, textless background.`
-        }),
-      });
-      const imgData = await imgRes.json();
-      if (imgRes.ok && imgData.imageUrl) {
-        setInlineImages(prev => {
-          // Remove old image for this heading if exists and append new one
-          const filtered = prev.filter(p => p.heading !== heading);
-          return [...filtered, { heading, url: imgData.imageUrl }];
-        });
-      } else {
-        setInlineErrors(prev => [...prev, { heading, error: imgData.error || "再試行失敗" }]);
-      }
-    } catch (e) {
-      setInlineErrors(prev => [...prev, { heading, error: "通信エラー" }]);
     }
   };
 
@@ -1911,57 +1970,57 @@ export default function Home() {
                   {/* Only show Note Post / Semi-Auto UI if article is generated AND not currently posting */}
                   {status === "done" && postStatus !== "posting" && (
                     <>
-                      {/* Semi-Auto Magic Injector (New Section) */}
-                      <div className="space-y-3 bg-orange-500/10 p-4 rounded-2xl border border-orange-500/30 shadow-xl">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-lg animate-bounce">
-                            🪄
+                      {/* Semi-Auto Magic Injector (Improved) */}
+                      <div className="space-y-4 bg-orange-500/10 p-5 rounded-3xl border border-orange-500/30 shadow-2xl">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-orange-500 p-2 rounded-xl text-white shadow-lg">
+                            <Zap size={20} />
                           </div>
                           <div>
-                            <div className="text-xs font-black text-orange-400 uppercase tracking-tighter">Recommended / 確実な方法</div>
-                            <div className="text-[14px] font-black text-white">半自動「魔法のコード」流し込み</div>
+                            <h3 className="text-sm font-black text-white leading-none mb-1 uppercase tracking-wider">Semi-Auto Magic Injector</h3>
+                            <p className="text-[10px] text-orange-200/60 font-medium">スマホ・PC両対応。もっとも確かな方法です。</p>
                           </div>
                         </div>
 
-                        <p className="text-[10px] text-orange-200/70 leading-relaxed italic">
-                          ボット検知を完全に回避し、100%確実に下書きを完成させる「職人技」プランです。
-                        </p>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <button
                             onClick={() => window.open('https://note.com/notes/new', '_blank')}
-                            className="flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold text-white transition-all border border-white/10"
+                            className="flex flex-col items-center justify-center gap-2 py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-bold text-white transition-all border border-white/10 group"
                           >
-                            <ExternalLink size={12} /> 1. エディタ
+                            <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mb-1 group-hover:bg-orange-500 transition-colors">1</span>
+                            エディタを開く
                           </button>
+
                           <button
                             onClick={() => {
                               const script = generateMagicCode();
                               navigator.clipboard.writeText(script);
                               alert("✨ 魔法のコード（コンソール用）をコピーしました！");
                             }}
-                            className="flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-orange-500/20 rounded-xl text-[10px] font-bold text-orange-200 transition-all border border-orange-500/30"
+                            className="flex flex-col items-center justify-center gap-2 py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-bold text-white transition-all border border-white/10 group"
                           >
-                            <Copy size={12} /> 2. コードをコピー
+                            <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mb-1 group-hover:bg-orange-500 transition-colors">2</span>
+                            コードをコピー
                           </button>
+
                           <button
                             onClick={() => {
                               const script = generateMagicCode();
                               const bookmarklet = `javascript:${encodeURIComponent(script)}`;
                               navigator.clipboard.writeText(bookmarklet);
-                              alert("🔖 ブックマークレットをコピーしました！\n\nブラウザのブックマーク（お気に入り）のURL欄にこれを貼り付けて保存しておけば、次回から1クリックで流し込めます。");
+                              alert("🔖 ブックマークレットをコピーしました！\n\n【おすすめ】ブラウザの「お気に入り」として登録しておけば、次回からこのボタンすら不要で1クリック入力が可能です。");
                             }}
-                            className="flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-[10px] font-black text-white transition-all shadow-lg"
+                            className="flex flex-col items-center justify-center gap-2 py-4 bg-orange-500 hover:bg-orange-600 rounded-2xl text-[10px] font-black text-white transition-all shadow-xl group"
                           >
-                            <Zap size={14} /> 3. 1クリック保存
+                            <span className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:bg-white group-hover:text-orange-500 transition-colors">3</span>
+                            爆速ブックマーク
                           </button>
                         </div>
 
-                        <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-2">
-                          <div className="text-[9px] font-bold text-white/40 uppercase">もっと楽にする裏ワザ（推奨）</div>
-                          <p className="text-[10px] text-white/50 leading-relaxed">
-                            「3. 1クリック保存」でコピーした内容をブックマークとして保存し、noteの画面でそのブックマークを押すだけで流し込みが完了します。<br />
-                            <span className="text-orange-400 font-bold">F12キーやコンソールを開く必要はありません。</span>
+                        <div className="p-4 bg-black/40 rounded-2xl border border-white/5 space-y-3">
+                          <div className="text-[9px] font-bold text-white/40 uppercase tracking-widest">スマホの方へ</div>
+                          <p className="text-[10px] text-white/70 leading-relaxed italic">
+                            「画面下のボタン」でタイトルと本文を順番にコピーして、noteの画面に貼り付けるのが一番スムーズです！
                           </p>
                         </div>
                       </div>
@@ -2173,12 +2232,20 @@ export default function Home() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {inlineImages.map((img, i) => (
-                      <div key={i} className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
+                      <div key={i} className="group glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20 relative">
                         <div className="relative aspect-video w-full rounded-[20px] overflow-hidden bg-black/40">
                           <img src={img.url} alt={img.heading} className="w-full h-full object-contain" />
                           <div className="absolute bottom-0 inset-x-0 bg-orange-950/80 py-3 px-4 backdrop-blur-sm border-t border-orange-500/30">
                             <p className="text-center text-orange-100 text-[10px] font-bold truncate">{img.heading}</p>
                           </div>
+                          {/* Individual Retry Button */}
+                          <button
+                            onClick={() => handleRetryInline(img.heading)}
+                            className="absolute top-2 right-2 p-2 bg-black/60 hover:bg-orange-500 rounded-full text-white opacity-0 group-hover:opacity-100 transition-all shadow-lg border border-white/20"
+                            title="この画像だけ再生成"
+                          >
+                            <RotateCcw size={12} />
+                          </button>
                         </div>
                         {isTitleFabMode ? (
                           <button
@@ -2298,7 +2365,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="prose prose-stone max-w-none text-base md:text-xl leading-relaxed md:leading-[2.2] text-gray-800 font-serif">
+                    <div className="prose prose-stone max-w-[850px] mx-auto text-base md:text-lg leading-relaxed md:leading-[1.8] text-gray-800 font-serif antialiased px-2">
                       <div className="whitespace-pre-wrap break-words indent-4">
                         {articleText.split('\n\n').map((para, i) => {
                           const isHeading = para.startsWith('##');
@@ -2368,6 +2435,15 @@ export default function Home() {
             </div>
             <BrandFooter />
           </div>
+
+          {/* New: Mobile Quick Copy Helper (Floating UI) */}
+          {status === "done" && (
+            <MobileCopyHelper
+              title={displayTitle}
+              body={articleText}
+              tags={hashtags}
+            />
+          )}
         </div>
       )
       }
