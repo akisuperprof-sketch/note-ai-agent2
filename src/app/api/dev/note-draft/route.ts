@@ -100,7 +100,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     try {
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
         if (isServerless) {
-            browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`, { timeout: 15000 });
+            // Enhanced connection with stealth and shm-size flags
+            browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 15000 });
         } else {
             browser = await playwright.launch({ headless: true });
         }
@@ -191,6 +192,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
         for (let i = 0; i < 9; i++) {
+            // Skeleton Detection
+            const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
+            if (tagCount < 50 && i > 0) {
+                update(`S03_空白検知 (Tags:${tagCount})`);
+                if (i === 3) await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+                if (i === 6) await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                await page.waitForTimeout(3000);
+            }
+
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el && await el.isVisible()) {
                 await page.waitForTimeout(1000); // React hydration buffer
@@ -200,16 +210,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             update(`S03_解析 (試行 ${i + 1}/9)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
-            if (i === 3) {
-                update('S03_リロード試行');
-                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-                await page.waitForTimeout(3000);
-            }
             if (i === 5) await page.keyboard.press('Escape');
-            if (i === 6) {
-                update('S03_強制URLジャンプ');
-                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-            }
         }
 
         const bestSelectors = await page.evaluate(() => {
@@ -258,8 +259,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         if (!bestSelectors.title || !bestSelectors.body) {
             if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-            const htmlInfo = await page.evaluate(() => `Len:${document.body.innerText.length}, Tags:${document.getElementsByTagName('*').length}`);
-            throw new Error(`解析失敗(S03)。状況: ${htmlInfo} URL: ${page.url().substring(0, 40)}`);
+            const diag = await page.evaluate(() => ({
+                len: document.body.innerText.length,
+                tags: document.querySelectorAll('*').length,
+                title: document.title
+            }));
+            throw new Error(`解析失敗(S03)。状況: ${JSON.stringify(diag)} URL: ${page.url().substring(0, 40)}`);
         }
 
         update('S03 (完了)');
