@@ -113,43 +113,77 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         job.last_step = 'S03_find_selectors';
         saveJob(job);
-        await page.waitForTimeout(5000);
+
+        // Wait for the main editor container or the publish button to ensure it's loaded
+        try {
+            await page.waitForSelector('button:has-text("公開設定"), [data-testid="publisher-button"]', { timeout: 15000 });
+        } catch (e) {
+            console.warn("[Action] Main editor elements not found by selector, proceeding with fallback wait.");
+            await page.waitForTimeout(5000);
+        }
+
         await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+        await page.keyboard.press('Escape'); // Double tap to clear tutorials
 
         const bestSelectors = await page.evaluate(() => {
             const candidates: any[] = [];
+            // Target inputs, textareas, contenteditable divs, and role=textbox
             const els = document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']");
+
             els.forEach(el => {
                 const rect = el.getBoundingClientRect();
-                if (rect.width < 40 || rect.height < 14) return;
+                // Ignore hidden or tiny elements
+                if (rect.width < 10 || rect.height < 10) return;
+
                 const ph = (el.getAttribute("placeholder") || "").toLowerCase();
                 const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-                const role = el.getAttribute("role") || "";
-                const ce = el.getAttribute("contenteditable") || "";
+                const testId = (el.getAttribute("data-testid") || el.getAttribute("data-test-id") || "").toLowerCase();
                 const tag = el.tagName;
+                const ce = el.getAttribute("contenteditable");
+                const role = el.getAttribute("role");
+
                 let sTitle = 0;
-                if (ph.includes("タイトル") || ph.includes("title")) sTitle += 10;
-                if (aria.includes("タイトル") || aria.includes("title")) sTitle += 10;
-                if (tag === "TEXTAREA" && rect.top < 400) sTitle += 5;
+                // Note uses "記事タイトル" or "タイトル"
+                if (ph.includes("タイトル") || ph.includes("title")) sTitle += 20;
+                if (aria.includes("タイトル") || aria.includes("title")) sTitle += 20;
+                if (testId.includes("title")) sTitle += 30;
+                if (tag === "H1" || (tag === "INPUT" && rect.top < 300)) sTitle += 10;
+
                 let sBody = 0;
-                if (ce === "true" || role === "textbox") sBody += 10;
-                if (ph.includes("書いてみませんか") || ph.includes("本文")) sBody += 10;
-                if (rect.height > 100) sBody += 5;
+                // Note uses "本文" or "書いてみませんか"
+                if (ph.includes("本文") || ph.includes("書いてみませんか") || ph.includes("content")) sBody += 20;
+                if (aria.includes("本文") || aria.includes("body")) sBody += 20;
+                if (testId.includes("body") || testId.includes("editor")) sBody += 30;
+                if (ce === "true" || role === "textbox" || tag === "TEXTAREA") sBody += 10;
+                if (rect.height > 200) sBody += 15;
+
                 let selector = el.tagName.toLowerCase();
-                const testid = el.getAttribute("data-testid");
-                if (testid) selector = `[data-testid="${testid}"]`;
+                const tid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+                if (tid) selector = `[data-testid="${tid}"]`;
                 else if (el.getAttribute("name")) selector = `[name="${el.getAttribute("name")}"]`;
                 else if (el.getAttribute("id")) selector = `#${el.getAttribute("id")}`;
-                candidates.push({ selector, sTitle, sBody });
+
+                candidates.push({ selector, sTitle, sBody, ph, testId });
             });
+
+            const sortedTitle = [...candidates].sort((a, b) => b.sTitle - a.sTitle);
+            const sortedBody = [...candidates].sort((a, b) => b.sBody - a.sBody);
+
             return {
-                title: candidates.sort((a, b) => b.sTitle - a.sTitle)[0]?.selector,
-                body: candidates.sort((a, b) => b.sBody - a.sBody)[0]?.selector
+                title: sortedTitle[0]?.sTitle > 0 ? sortedTitle[0].selector : null,
+                body: sortedBody[0]?.sBody > 0 ? sortedBody[0].selector : null,
+                debug_count: candidates.length,
+                top_title_score: sortedTitle[0]?.sTitle || 0,
+                top_body_score: sortedBody[0]?.sBody || 0
             };
         });
 
+        console.log(`[Action] Smart Selector Results:`, bestSelectors);
+
         if (!bestSelectors.title || !bestSelectors.body) {
-            throw new Error(`記事入力フィールドが見つかりませんでした (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
+            const url = page.url();
+            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${url} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body}, Candidates: ${bestSelectors.debug_count})`);
         }
 
         if (bestSelectors.title) {

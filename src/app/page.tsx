@@ -1138,19 +1138,6 @@ export default function Home() {
 
   const [jobs, setJobs] = useState<NoteJob[]>([]);
 
-  const fetchJobs = async () => {
-    if (appMode !== "development") return;
-    try {
-      const res = await fetch(`/api/dev/note-jobs?mode=${appMode}`);
-      if (res.ok) {
-        const data = await res.json();
-        setJobs(Array.isArray(data) ? data.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) : []);
-      }
-    } catch (e) {
-      console.error("Failed to fetch jobs", e);
-    }
-  };
-
   const handleDraftPost = async () => {
     if (!articleText) {
       alert("記事が生成されていません");
@@ -1245,7 +1232,6 @@ export default function Home() {
         const step = data.last_step ? ` (${data.last_step})` : "";
         setPostLogs(prev => [...prev, { text: `[ERROR] ${msg}${step}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       }
-      fetchJobs();
     } catch (e: any) {
       clearInterval(pollInterval);
       setPostStatus("error");
@@ -1253,12 +1239,6 @@ export default function Home() {
       setPostLogs(prev => [...prev, { text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
     }
   };
-
-  useEffect(() => {
-    if (appMode === "development") {
-      fetchJobs();
-    }
-  }, [appMode]);
 
   useEffect(() => {
     const hideHelp = localStorage.getItem("hideHelp");
@@ -1838,48 +1818,7 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Job History */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Job History</h4>
-                  <button onClick={fetchJobs} className="text-[10px] text-yellow-500/50 hover:text-yellow-500">
-                    <RotateCcw size={10} className="inline mr-1" /> Refetch
-                  </button>
-                </div>
-                <div className="bg-black/20 rounded-xl overflow-hidden border border-white/5 max-h-40 overflow-y-auto scrollbar-hide">
-                  <table className="w-full text-[10px] text-left">
-                    <thead className="bg-white/5 text-white/30 font-bold">
-                      <tr>
-                        <th className="p-2">Time</th>
-                        <th className="p-2">Status</th>
-                        <th className="p-2">Step</th>
-                        <th className="p-2">Link</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-white/60 divide-y divide-white/5">
-                      {jobs.length === 0 ? (
-                        <tr><td colSpan={4} className="p-4 text-center italic opacity-30">No history available</td></tr>
-                      ) : jobs.map(job => (
-                        <tr key={job.job_id} className="hover:bg-white/5">
-                          <td className="p-2 whitespace-nowrap">{new Date(job.created_at).toLocaleTimeString()}</td>
-                          <td className="p-2 font-bold">
-                            <span className={cn(
-                              job.status === 'success' ? 'text-green-400' :
-                                job.status === 'failed' ? 'text-red-400' : 'text-yellow-400'
-                            )}>{job.status}</span>
-                          </td>
-                          <td className="p-2 font-mono text-[9px] truncate max-w-[80px]">{job.last_step}</td>
-                          <td className="p-2">
-                            {job.note_url ? (
-                              <a href={job.note_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">URL</a>
-                            ) : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/* Job History removed as redundancy; processing logs provide real-time status */}
             </div>
           )}
 
