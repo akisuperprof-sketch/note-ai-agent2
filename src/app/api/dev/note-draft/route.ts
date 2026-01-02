@@ -308,45 +308,52 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             const el = page.locator(selector).first();
             await el.scrollIntoViewIfNeeded();
             await el.click();
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(1000);
 
-            // Use execCommand as primary for rich text, or direct manipulation as fallback
-            await page.evaluate(({ sel, txt, bodyMode }: { sel: string, txt: string, bodyMode: boolean }) => {
-                const element = document.querySelector(sel) as any;
-                if (!element) return;
+            // Split into human-like "bursts" (e.g., paragraphs or character blocks)
+            // For Vercel, we can't do char-by-char for long text, but we can do small chunks.
+            const chunks = isBody ? text.match(/[\s\S]{1,150}/g) || [text] : text.match(/[\s\S]{1,20}/g) || [text];
 
-                element.focus();
-                // Try execCommand first (better for React/ProseMirror state)
-                try {
-                    document.execCommand('selectAll', false);
-                    document.execCommand('insertText', false, txt);
-                } catch (e) {
-                    if (bodyMode) {
-                        element.innerHTML = `<p>${txt}</p>`;
-                    } else {
-                        element.value = txt;
+            update(`✍️ ${isBody ? '本文' : 'タイトル'}を丁寧に記入中...`);
+
+            for (const chunk of chunks) {
+                await page.evaluate(({ sel, txt }: { sel: string, txt: string }) => {
+                    const target = document.querySelector(sel) as any;
+                    if (!target) return;
+                    target.focus();
+
+                    // Use insertText to trigger React/ProseMirror state updates naturally
+                    const success = document.execCommand('insertText', false, txt);
+
+                    // Fallback to manual event dispatching if insertText fails
+                    if (!success) {
+                        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+                            target.value += txt;
+                            target.dispatchEvent(new Event('input', { bubbles: true }));
+                        } else {
+                            target.innerText += txt;
+                            target.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
                     }
+                }, { sel: selector, txt: chunk });
+
+                // Randomized human-like pause between "bursts"
+                await page.waitForTimeout(100 + Math.random() * 300);
+
+                // Extra pause at paragraph ends
+                if (chunk.includes('\n')) {
+                    await page.waitForTimeout(300 + Math.random() * 500);
                 }
-
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-                element.dispatchEvent(new Event('change', { bubbles: true }));
-            }, { sel: selector, txt: text, bodyMode: isBody });
-
-            // Trigger possible auto-save triggers in React
-            await page.keyboard.press('End');
-            await page.keyboard.press('Space');
-            await page.keyboard.press('Backspace');
+            }
         };
 
-        update('✍️ タイトルを書き込む準備をしています...');
-        await page.waitForTimeout(3000);
+        update('✍️ タイトルを入力しています...');
         await forceInput(bestSelectors.title, content.title);
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(1500);
 
-        update('📄 本文を流し込む準備をしています...');
-        await page.waitForTimeout(3000);
+        update('📄 本文を作成しています...');
         await forceInput(bestSelectors.body, content.body, true);
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(2000);
 
         update('💾 大切な下書きとして保存しています...');
         if (bestSelectors.save) {
