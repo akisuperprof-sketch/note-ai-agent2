@@ -115,6 +115,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7'
             }
         });
+
+        // Stealth: Hide webdriver property
+        await context.addInitScript(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        });
+
         if (fs.existsSync(SESSION_FILE)) {
             const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
             await context.addCookies(state.cookies || []);
@@ -122,23 +128,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
         await page.setDefaultTimeout(15000);
-        update('🚀 準備を開始しています...');
-        // Visit main domain first to establish referer and cookies
-        await page.goto('https://note.com/', { waitUntil: 'load', timeout: 20000 }).catch(() => { });
-        update('⏳ サイトの状態を確認しています... (5秒待機)');
-        await page.waitForTimeout(5000);
+        update('🚀 サイトへ移動しています...');
+        await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
+        await page.waitForTimeout(3000);
 
-        // Then go to editor with explicit referer
-        await page.goto('https://editor.note.com/notes/new', {
-            waitUntil: 'load',
-            timeout: 25000,
-            referer: 'https://note.com/'
-        }).catch(() => { });
-        update('⌛ エディタを読み込んでいます... (5秒待機)');
-        await page.waitForTimeout(5000);
-
-        if (page.url().includes('/login')) {
-            update('🔑 ログインが必要なため、手続きを行っています...');
+        // Check if already on editor or need to navigate
+        if (page.url().includes('/notes/new')) {
+            update('✅ すでにエディタが開いています');
+        } else if (page.url().includes('/login')) {
+            update('🔑 ログイン手続きを開始します...');
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -155,24 +153,38 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     throw new Error("ログイン後の画面が開きませんでした。");
                 }
 
-                const state = await context.storageState();
-                if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
-                fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
-
-                // Return to editor with stabilization
-                update('☕ ログインを確定させています... (5秒待機)');
-                await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
-                await page.waitForTimeout(5000);
-
-                update('🚀 エディタへ再度向かっています...');
-                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
-                await page.waitForTimeout(5000);
+                // Visit main site to stabilize
+                update('☕ ログインを確定させています...');
+                await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
+                await page.waitForTimeout(3000);
             } else {
                 throw new Error("ログインが必要ですが、資格情報がありません。");
             }
         }
-        update('✅ ログイン・アクセス完了');
-        await page.waitForTimeout(500 + Math.random() * 500);
+
+        // Human Action: Attempt to click "Post" button if not in editor
+        if (!page.url().includes('editor.note.com')) {
+            update('🖱️ 「投稿」ボタンを探してクリックします...');
+            const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button').first();
+            if (await postBtn.isVisible()) {
+                await postBtn.click();
+                await page.waitForTimeout(2000);
+                // Handle sub-menu for "Text" if visible
+                const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"]').first();
+                if (await textBtn.isVisible()) {
+                    await textBtn.click();
+                } else {
+                    // If no sub-menu, maybe direct URL is better now that we have a referer
+                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                }
+            } else {
+                update('⚡ ボタンが見つからないため、直接エディタへ移動します');
+                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+            }
+            // Wait for editor to load after click/redirect
+            await page.waitForTimeout(5000);
+        }
+        update('✅ 編集画面への到達を確認しました');
 
         // Tutorial Bypass (Aggressive)
         update('🧹 邪魔な案内を片付けています...');
