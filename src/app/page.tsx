@@ -1550,7 +1550,14 @@ export default function Home() {
               if (done) break;
               const chunk = decoder.decode(value, { stream: true });
               fullText += chunk;
-              setArticleText(prev => prev + chunk);
+
+              // Filter out the plan if the separator is present
+              if (fullText.includes("---CONTENT_START---")) {
+                const parts = fullText.split("---CONTENT_START---");
+                setArticleText(parts[1]?.trim() || "");
+              } else {
+                setArticleText(fullText);
+              }
             }
           } catch (e) {
             console.error("Stream reader error:", e);
@@ -1560,8 +1567,14 @@ export default function Home() {
 
         await addLog("執筆が完了しました。品質をチェックしています...", 1000);
 
-        // --- Length Check & Retry ---
-        const charCount = fullText.length;
+        // --- Extract Final Article Body ---
+        let finalArticle = fullText;
+        if (fullText.includes("---CONTENT_START---")) {
+          finalArticle = fullText.split("---CONTENT_START---")[1]?.trim() || fullText;
+        }
+
+        // --- Length Check & Retry (Using filtered article text) ---
+        const charCount = finalArticle.length;
         const minTarget = (data.targetLength || 5000) * 0.3; // 30% threshold for very long content
         if (charCount < minTarget) {
           if (!data._isRetry) {
@@ -1573,27 +1586,27 @@ export default function Home() {
           }
         }
 
-        // Extract title and Meta Description
-        const titleMatch = fullText.match(/^#\s+(.+)$/m);
+        // Extract title and Meta Description (Scan from finalArticle only)
+        const titleMatch = finalArticle.match(/^#\s+(.+)$/m);
         const extractedTitle = titleMatch ? titleMatch[1].trim() : data.topic;
         setDisplayTitle(extractedTitle);
 
         // Simple extraction for meta description
-        const paragraphs = fullText.split("\n\n")
+        const paragraphs = finalArticle.split("\n\n")
           .filter(p => !p.startsWith("#"))
           .filter(p => !p.includes("レッサーパンダ") && !p.includes("サポートするよ")); // Filter out persona greetings
         const firstMeaningfulParam = paragraphs.find(p => p.length > 50) || "";
         setMetaDescription(firstMeaningfulParam.substring(0, 120) + "...");
 
         // Extract hashtags
-        const tagMatch = fullText.match(/【おすすめのハッシュタグ】(.+)$/m);
+        const tagMatch = finalArticle.match(/【おすすめのハッシュタグ】(.+)$/m) || fullText.match(/【おすすめのハッシュタグ】(.+)$/m);
         let currentHashtags: string[] = [];
         if (tagMatch) {
           currentHashtags = tagMatch[1].trim().split(/\s+/).filter(t => t.startsWith("#") || t.length > 0).map(t => t.startsWith("#") ? t : `#${t}`);
           setHashtags(currentHashtags);
         }
 
-        const finalScore = calculateArticleScore(fullText, data.targetLength || 5000);
+        const finalScore = calculateArticleScore(finalArticle, data.targetLength || 5000);
         setScore(finalScore);
 
         let finalImgUrl: string | null = null;
@@ -1676,7 +1689,7 @@ export default function Home() {
 
         saveToHistory({
           displayTitle: extractedTitle,
-          articleText: fullText,
+          articleText: finalArticle,
           generatedImage: finalImgUrl,
           inlineImages: finalInlineUrl ? [{ heading: headingText, url: finalInlineUrl }] : [],
           score: finalScore,
