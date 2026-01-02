@@ -6,7 +6,8 @@ import {
   RotateCcw, Sparkles, Wand2, Share, DollarSign, Lightbulb, ImagePlus,
   Eye, BarChart3, Download, Search,
   AlertTriangle, // Added for Dev Mode Warning
-  Send // Added for Post Button
+  Send, // Added for Post Button
+  Pen, FileText, Terminal, ExternalLink
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
@@ -925,6 +926,91 @@ export default function Home() {
   const [postedArticles, setPostedArticles] = useState<Set<string>>(new Set());
   const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
   const [postLogs, setPostLogs] = useState<string[]>([]);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [elapsedTime, setElapsedTime] = useState("0:00");
+  const [notePostConsoleUrl, setNotePostConsoleUrl] = useState("");
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (startTime && postStatus === 'posting') {
+      timerRef.current = setInterval(() => {
+        const diff = Math.floor((Date.now() - startTime) / 1000);
+        const mins = Math.floor(diff / 60);
+        const secs = diff % 60;
+        setElapsedTime(`${mins}:${secs.toString().padStart(2, '0')}`);
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [startTime, postStatus]);
+
+  const NotePostConsole = () => {
+    if (postStatus === 'idle') return null;
+    return (
+      <div className="mt-8 rounded-3xl bg-neutral-900/50 border border-white/5 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-orange-500/10 p-3 rounded-2xl">
+              <Pen size={20} className="text-orange-500 animate-bounce" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-white leading-none mb-1">AIエージェント処理中</h3>
+              <p className="text-xs text-white/40 font-mono italic">経過時間: {elapsedTime}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
+            <div className={`w-1.5 h-1.5 rounded-full ${postStatus === 'posting' ? 'bg-orange-500 animate-pulse' : postStatus === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
+              {postStatus === 'posting' ? 'Processing...' : postStatus === 'success' ? 'Finished' : 'Failed'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="flex items-center gap-2 text-white/40">
+            <Terminal size={16} />
+            <span className="text-[11px] font-black uppercase tracking-widest">処理ログ</span>
+          </div>
+          <div className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[250px] overflow-y-auto font-mono text-[11px] scrollbar-hide">
+            {postLogs.map((log, i) => {
+              const timeStr = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+              return (
+                <div key={i} className="flex gap-4 group animate-in slide-in-from-left-2 duration-300">
+                  <span className="text-white/10 group-last:text-white/30 transition-colors whitespace-nowrap">{timeStr}</span>
+                  <span className={`
+                    ${log.includes('[START]') ? 'text-orange-400 font-bold' : ''}
+                    ${log.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
+                    ${log.includes('[ERROR]') ? 'text-red-400' : 'text-white/60'}
+                  `}>
+                    {log.replace(/\[.*\]\s*/, '')}
+                  </span>
+                </div>
+              );
+            })}
+            {postStatus === 'posting' && (
+              <div className="flex gap-4 animate-pulse">
+                <span className="text-white/10 shrink-0">--:--:--</span>
+                <span className="text-orange-500/50 italic">AIが操作情報を解析中...</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {postStatus === 'success' && (
+          <div className="px-6 py-4 bg-green-500/10 border-t border-green-500/20 flex items-center justify-center">
+            <a
+              href={notePostConsoleUrl || "#"}
+              target="_blank"
+              className="flex items-center gap-2 text-xs font-black text-green-400 hover:text-green-300 transition-colors"
+            >
+              作成された下書きURLを開く <ExternalLink size={14} />
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Note Credentials
   const [noteEmail, setNoteEmail] = useState("");
@@ -1087,7 +1173,9 @@ export default function Home() {
     if (!confirm("【開発モード】\nnoteへ実際に「下書き」保存を実行します。よろしいですか？\n※Vercel環境ではBrowserless.ioの設定が必要です")) return;
 
     setPostStatus("posting");
-    setPostLogs(prev => [`[START] 下書き保存開始 (ArticleID: ${articleId})`]);
+    setPostLogs([`[START] 下書き保存開始`]);
+    setStartTime(Date.now());
+    setElapsedTime("0:00");
 
     // ポーリング用のタイマー
     const pollInterval = setInterval(async () => {
@@ -1097,13 +1185,12 @@ export default function Home() {
           const jobsData = await res.json();
           setJobs(jobsData);
 
-          // 最新の自分のジョブを探してログに追記（積み上げ表示）
+          // 最新の自分のジョブを探してログに追記
           const myJob = Array.isArray(jobsData) ? jobsData.find((j: any) => j.request_id === requestId) : null;
           if (myJob) {
             setPostLogs(prev => {
-              const base = `[STATUS] ${myJob.last_step || 'unknown'} (${myJob.status})`;
-              // まだログに含まれていない新しいステップなら追加
-              if (!prev.includes(base)) {
+              const base = `[STATUS] ${myJob.last_step || 'unknown'}`;
+              if (!prev.find(p => p.includes(base))) {
                 return [...prev, base];
               }
               return prev;
@@ -1111,11 +1198,15 @@ export default function Home() {
 
             if (myJob.status === 'success' || myJob.status === 'failed') {
               clearInterval(pollInterval);
+              setPostStatus(myJob.status === 'success' ? 'success' : 'error');
+              if (myJob.status === 'success' && myJob.note_url) {
+                setNotePostConsoleUrl(myJob.note_url);
+              }
             }
           }
         }
       } catch (e) { console.error("Polling failed", e); }
-    }, 3000);
+    }, 2500);
 
     try {
       const res = await fetch("/api/dev/note-draft", {
@@ -1144,25 +1235,22 @@ export default function Home() {
         throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
       }
 
-      clearInterval(pollInterval); // 完了したのでタイマー停止
-
       if (res.status === 200 && data.status === "success") {
         setPostStatus("success");
         setPostedArticles(prev => new Set(prev).add(articleId));
-        setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`, `URL: ${data.note_url || 'N/A'}`]);
-        alert("noteへの下書き保存に成功しました！");
+        setPostLogs(prev => [...prev, `[SUCCESS] 下書き保存完了`]);
+        if (data.note_url) setNotePostConsoleUrl(data.note_url);
       } else {
         setPostStatus("error");
         const msg = data.error_message || data.error || "詳細不明のエラー";
-        setPostLogs(prev => [...prev, `[ERROR] ${msg}`, `Step: ${data.last_step || 'unknown'}`]);
+        setPostLogs(prev => [...prev, `[ERROR] ${msg}`]);
       }
-      fetchJobs(); // 最終履歴更新
+      fetchJobs();
     } catch (e: any) {
       clearInterval(pollInterval);
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
-      setPostLogs(prev => [...prev, `[ERROR] 通信エラー: ${errorMsg}`]);
-      console.error("Draft post fetch failed:", e);
+      setPostLogs(prev => [...prev, `[ERROR] ${errorMsg}`]);
     }
   };
 
@@ -1705,53 +1793,49 @@ export default function Home() {
               </div>
 
               <div className="flex flex-col gap-3">
-                <div className="bg-black/40 rounded-lg p-3 min-h-[60px] max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-400 space-y-1">
-                  {postLogs.length === 0 ? "> Ready for deployment check..." : postLogs.map((l, i) => <div key={i}>{l}</div>)}
-                </div>
-
-                {/* Login Credentials Inputs */}
-                <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
-                  <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <div className="relative">
-                      <input
-                        type="email"
-                        placeholder="Email"
-                        value={noteEmail}
-                        onChange={e => setNoteEmail(e.target.value)}
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
-                      />
+                {postStatus !== "idle" ? (
+                  <NotePostConsole />
+                ) : (
+                  <>
+                    {/* Login Credentials Inputs */}
+                    <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10">
+                      <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Note Login Credentials (Auto-saved)</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="relative">
+                          <input
+                            type="email"
+                            placeholder="Email"
+                            value={noteEmail}
+                            onChange={e => setNoteEmail(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
+                          />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type={showPass ? "text" : "password"}
+                            placeholder="Password"
+                            value={notePassword}
+                            onChange={e => setNotePassword(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
+                          />
+                          <button
+                            onClick={() => setShowPass(!showPass)}
+                            className="absolute right-2 text-white/40 hover:text-white transition-colors"
+                          >
+                            {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="relative flex items-center">
-                      <input
-                        type={showPass ? "text" : "password"}
-                        placeholder="Password"
-                        value={notePassword}
-                        onChange={e => setNotePassword(e.target.value)}
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
-                      />
-                      <button
-                        onClick={() => setShowPass(!showPass)}
-                        className="absolute right-2 text-white/40 hover:text-white transition-colors"
-                      >
-                        {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
 
-                <button
-                  onClick={handleDraftPost}
-                  disabled={postStatus === "posting"}
-                  className={cn(
-                    "w-full py-3 rounded-xl border font-bold flex items-center justify-center gap-2 transition-all text-xs",
-                    postStatus === "idle" || postStatus === "error" || postStatus === "success" || postStatus === "stopped"
-                      ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
-                      : "border-gray-700 text-gray-500 cursor-not-allowed"
-                  )}
-                >
-                  {postStatus === "posting" ? "ブラウザ操作を実行中..." : <><Send size={14} /> Noteへ実投稿（下書き）</>}
-                </button>
+                    <button
+                      onClick={handleDraftPost}
+                      className="w-full py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
+                    >
+                      <Send size={18} /> Noteへ実投稿（下書き）
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Job History */}
