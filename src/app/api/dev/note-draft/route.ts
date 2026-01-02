@@ -197,43 +197,49 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // S04: Content Input
         try {
-            console.log(`[Action] Preparing editor stage. Current URL: ${page.url()}`);
+            console.log(`[Action] Editor stage started. URL: ${page.url()}`);
 
-            // ポップアップやチュートリアルが表示されている可能性があるため、Escapeを連打して閉じる
+            // ポップアップ対策：Escを連打してフォーカスをクリア
             await page.keyboard.press('Escape');
-            await page.waitForTimeout(1000);
-            await page.keyboard.press('Escape');
-
-            // エディタの初期化を十分に待つ
-            await page.waitForTimeout(5000);
-
-            const currentUrl = page.url();
-            const urlKey = currentUrl.includes('editor.note.com') ? 'new_editor' : 'unknown';
-            job.last_step = `S04_at_${urlKey}`;
-            saveJob(job);
+            await page.waitForTimeout(2000);
 
             job.last_step = 'S04_fill_title';
             saveJob(job);
-            console.log(`[Action] Filling title...`);
+            console.log(`[Action] Filling title (Strong approach)...`);
 
-            // タイトル入力欄：より広範なセレクタで検索
-            const titleSelector = [
+            // タイトル：画像に見えている「記事タイトル」という文字を含む要素、または textarea を探す
+            const titleSelectors = [
                 'textarea[placeholder*="タイトル"]',
                 '[placeholder*="記事タイトル"]',
                 '.note-editor-v3__title-textarea',
-                '#note-title-input',
-                'div[contenteditable="true"]:below(:text("タイトル"))'
-            ].join(', ');
+                'h1[contenteditable="true"]',
+                'div[contenteditable="true"]:above([role="textbox"])'
+            ];
 
-            const titleInput = page.locator(titleSelector).first();
-            await titleInput.waitFor({ state: 'visible', timeout: 30000 });
-            await titleInput.click();
-            await titleInput.fill(content.title);
+            let titleFound = false;
+            for (const sel of titleSelectors) {
+                try {
+                    const el = page.locator(sel).first();
+                    if (await el.isVisible()) {
+                        console.log(`[Action] Found title via: ${sel}`);
+                        await el.click();
+                        await el.fill(content.title);
+                        titleFound = true;
+                        break;
+                    }
+                } catch (e) { }
+            }
+
+            if (!titleFound) {
+                // 最終手段：画面上の最初の contenteditable 要素をタイトルとみなす
+                console.log(`[Action] Primary title selectors failed. Trying fallback...`);
+                await page.locator('[contenteditable="true"]').first().fill(content.title);
+            }
 
             // 本文入力
             job.last_step = 'S05_fill_body';
             saveJob(job);
-            console.log(`[Action] Filling body...`);
+            console.log(`[Action] Filling body (Strong approach)...`);
 
             const bodySelector = [
                 '[role="textbox"]',
@@ -264,8 +270,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } catch (e: any) {
             console.error(`[Action] Editor stage failed:`, e.message);
             // 失敗時のデバッグ情報：要素が見えているかチェック
-            const htmlSnippet = await page.evaluate(() => document.body.innerText.substring(0, 1000));
-            console.log(`[Debug] Page text snippet: ${htmlSnippet}`);
+            try {
+                const htmlSnippet = await page.evaluate(() => document.body.innerText.substring(0, 1000));
+                console.log(`[Debug] Page text snippet: ${htmlSnippet}`);
+            } catch (e2) { }
 
             await captureFailure('S04_fill_content', e);
             throw e;
