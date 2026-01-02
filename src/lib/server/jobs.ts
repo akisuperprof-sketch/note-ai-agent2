@@ -27,12 +27,18 @@ export interface NoteJob {
 }
 
 export function getAllJobs(): NoteJob[] {
-    if (!fs.existsSync(JOBS_FILE)) return [];
+    console.log(`[Persistence] Reading jobs from: ${JOBS_FILE}`);
+    if (!fs.existsSync(JOBS_FILE)) {
+        console.log(`[Persistence] No jobs file found at ${JOBS_FILE}`);
+        return [];
+    }
     try {
         const data = fs.readFileSync(JOBS_FILE, 'utf-8');
-        return JSON.parse(data);
+        const jobs = JSON.parse(data);
+        console.log(`[Persistence] Loaded ${jobs.length} jobs.`);
+        return jobs;
     } catch (e) {
-        console.error('Failed to read jobs file', e);
+        console.error('[Persistence] Failed to read jobs file', e);
         return [];
     }
 }
@@ -51,6 +57,7 @@ export function saveJob(job: NoteJob) {
     }
 
     fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs, null, 2));
+    console.log(`[Persistence] Saved job ${job.job_id} to ${JOBS_FILE}. Total jobs: ${jobs.length}`);
 }
 
 export function findJobByRequestId(requestId: string): NoteJob | undefined {

@@ -197,7 +197,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // S04: Content Input
         try {
-            // エディタの初期化を待つ（5秒待機＋要素出現を待つ）
+            console.log(`[Action] Preparing editor stage. Current URL: ${page.url()}`);
+
+            // ポップアップやチュートリアルが表示されている可能性があるため、Escapeを連打して閉じる
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(1000);
+            await page.keyboard.press('Escape');
+
+            // エディタの初期化を十分に待つ
             await page.waitForTimeout(5000);
 
             const currentUrl = page.url();
@@ -208,38 +215,58 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             job.last_step = 'S04_fill_title';
             saveJob(job);
             console.log(`[Action] Filling title...`);
-            // 「記事タイトル」が見えるまで待機
-            const titleInput = page.locator('textarea[placeholder*="タイトル"], [placeholder*="記事タイトル"]').first();
-            await titleInput.waitFor({ state: 'visible', timeout: 15000 });
+
+            // タイトル入力欄：より広範なセレクタで検索
+            const titleSelector = [
+                'textarea[placeholder*="タイトル"]',
+                '[placeholder*="記事タイトル"]',
+                '.note-editor-v3__title-textarea',
+                '#note-title-input',
+                'div[contenteditable="true"]:below(:text("タイトル"))'
+            ].join(', ');
+
+            const titleInput = page.locator(titleSelector).first();
+            await titleInput.waitFor({ state: 'visible', timeout: 30000 });
             await titleInput.click();
             await titleInput.fill(content.title);
 
+            // 本文入力
             job.last_step = 'S05_fill_body';
             saveJob(job);
             console.log(`[Action] Filling body...`);
-            // 本文：role="textbox"
-            const bodyInput = page.locator('[role="textbox"], .note-common-editor__editable').first();
-            await bodyInput.waitFor({ state: 'visible', timeout: 10000 });
-            await bodyInput.click();
-            await page.waitForTimeout(500);
-            await page.keyboard.type(content.body, { delay: 5 });
 
-            await page.waitForTimeout(3000); // 保存待ち
+            const bodySelector = [
+                '[role="textbox"]',
+                '.note-common-editor__editable',
+                '[placeholder*="書いてみませんか"]',
+                '.lavender-editor__content'
+            ].join(', ');
+
+            const bodyInput = page.locator(bodySelector).first();
+            await bodyInput.waitFor({ state: 'visible', timeout: 20000 });
+            await bodyInput.click();
+            await page.waitForTimeout(1000);
+
+            // 本文は大容量になる可能性があるため、速度重視(delay:2ms)で入力
+            await page.keyboard.type(content.body, { delay: 2 });
+
+            await page.waitForTimeout(5000); // 自動保存完了を待つ
 
             job.status = 'success';
             job.finished_at = new Date().toISOString();
             job.posted_at = new Date().toISOString();
             job.note_url = page.url();
-            job.last_step = 'S99_complete';
+            job.last_step = 'S09_complete';
             saveJob(job);
 
             await browser.close();
             return { status: 'success', note_url: job.note_url };
         } catch (e: any) {
             console.error(`[Action] Editor stage failed:`, e.message);
-            if (e.message.includes('closed')) {
-                throw new Error("Vercelの制限時間（約30秒）を超過しました。vercel.jsonの反映をお待ちください。");
-            }
+            // 失敗時のデバッグ情報：要素が見えているかチェック
+            const htmlSnippet = await page.evaluate(() => document.body.innerText.substring(0, 1000));
+            console.log(`[Debug] Page text snippet: ${htmlSnippet}`);
+
             await captureFailure('S04_fill_content', e);
             throw e;
         }
