@@ -1927,33 +1927,42 @@ export default function Home() {
                           ボット検知を完全に回避し、100%確実に下書きを完成させる「職人技」プランです。
                         </p>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                           <button
                             onClick={() => window.open('https://note.com/notes/new', '_blank')}
-                            className="flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold text-white transition-all border border-white/10"
+                            className="flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold text-white transition-all border border-white/10"
                           >
-                            <ExternalLink size={14} /> 1. エディタを開く
+                            <ExternalLink size={12} /> 1. エディタ
                           </button>
                           <button
                             onClick={() => {
                               const script = generateMagicCode();
                               navigator.clipboard.writeText(script);
-                              alert("✨ 魔法のコードをコピーしました！\n\nnoteの画面で F12キーを押して「Console」タブに貼り付けてください。");
+                              alert("✨ 魔法のコード（コンソール用）をコピーしました！");
                             }}
-                            className="flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-xs font-black text-white transition-all shadow-lg"
+                            className="flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-orange-500/20 rounded-xl text-[10px] font-bold text-orange-200 transition-all border border-orange-500/30"
                           >
-                            <Zap size={14} /> 2. 魔法のコードをコピー
+                            <Copy size={12} /> 2. コードをコピー
+                          </button>
+                          <button
+                            onClick={() => {
+                              const script = generateMagicCode();
+                              const bookmarklet = `javascript:${encodeURIComponent(script)}`;
+                              navigator.clipboard.writeText(bookmarklet);
+                              alert("🔖 ブックマークレットをコピーしました！\n\nブラウザのブックマーク（お気に入り）のURL欄にこれを貼り付けて保存しておけば、次回から1クリックで流し込めます。");
+                            }}
+                            className="flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-[10px] font-black text-white transition-all shadow-lg"
+                          >
+                            <Zap size={14} /> 3. 1クリック保存
                           </button>
                         </div>
 
                         <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-2">
-                          <div className="text-[9px] font-bold text-white/40 uppercase">使い方</div>
-                          <ol className="text-[10px] text-white/60 space-y-1 list-decimal list-inside">
-                            <li>上のボタンで <span className="text-white font-bold">noteエディタ</span> を開きます</li>
-                            <li><span className="text-white font-bold">魔法のコード</span> をコピーします</li>
-                            <li>noteの画面で <span className="text-orange-400 font-bold">F12キー</span> (または右クリック→検証) を押します</li>
-                            <li><span className="text-white font-bold">「Console」</span> タブを選び、コードを貼り付けて <span className="text-white font-bold">Enter</span>！</li>
-                          </ol>
+                          <div className="text-[9px] font-bold text-white/40 uppercase">もっと楽にする裏ワザ（推奨）</div>
+                          <p className="text-[10px] text-white/50 leading-relaxed">
+                            「3. 1クリック保存」でコピーした内容をブックマークとして保存し、noteの画面でそのブックマークを押すだけで流し込みが完了します。<br />
+                            <span className="text-orange-400 font-bold">F12キーやコンソールを開く必要はありません。</span>
+                          </p>
                         </div>
                       </div>
 
