@@ -58,11 +58,31 @@ JSON形式のみで出力してください。Markdownのコードブロック�
 
         try {
             const recommendations = JSON.parse(jsonStr);
+
+            // Robustly extract and format strings from potential objects/arrays
+            const formatValue = (val: any) => {
+                if (!val) return "";
+                if (typeof val === 'string') return val;
+                if (Array.isArray(val)) {
+                    return val.map((item, idx) => {
+                        if (typeof item === 'string') return item;
+                        if (typeof item === 'object') {
+                            // Extract title/text if it's an object, otherwise stringify
+                            const content = item.point || item.title || item.text || item.content || JSON.stringify(item);
+                            return `${idx + 1}. ${content}`;
+                        }
+                        return String(item);
+                    }).join("\n");
+                }
+                if (typeof val === 'object') return JSON.stringify(val);
+                return String(val);
+            };
+
             return NextResponse.json({
-                targetAudience: recommendations.targetAudience || recommendations['誰に届けるか'] || "",
-                goal: recommendations.goal || recommendations['この記事だけの価値'] || "",
-                differentiation: recommendations.differentiation || recommendations['独自の切り口・コンセプト'] || "",
-                outlineSupplement: recommendations.outlineSupplement || recommendations['目次の構成・補足'] || ""
+                targetAudience: formatValue(recommendations.targetAudience || recommendations['誰に届けるか']),
+                goal: formatValue(recommendations.goal || recommendations['この記事だけの価値']),
+                differentiation: formatValue(recommendations.differentiation || recommendations['独自の切り口・コンセプト']),
+                outlineSupplement: formatValue(recommendations.outlineSupplement || recommendations['目次の構成・補足'])
             });
         } catch (parseError) {
             console.error("JSON Parse Error:", parseError, "Raw text:", text);
