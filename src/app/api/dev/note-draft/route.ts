@@ -182,24 +182,43 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         console.log(`[Action] Smart Selector Results:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            const url = page.url();
-            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${url} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body}, Candidates: ${bestSelectors.debug_count})`);
+            console.log("[Action] Smart selector failed, trying structural fallback...");
+            const fallbackSelectors = await page.evaluate(() => {
+                const h1 = document.querySelector('h1[contenteditable="true"], input[placeholder*="タイトル"]');
+                const editor = document.querySelector('.note-editor, .ProseMirror, [role="textbox"]');
+                return {
+                    title: h1 ? (h1.getAttribute('data-testid') ? `[data-testid="${h1.getAttribute('data-testid')}"]` : 'h1[contenteditable="true"]') : null,
+                    body: editor ? (editor.getAttribute('data-testid') ? `[data-testid="${editor.getAttribute('data-testid')}"]` : '.ProseMirror') : null
+                };
+            });
+            bestSelectors.title = bestSelectors.title || fallbackSelectors.title;
+            bestSelectors.body = bestSelectors.body || fallbackSelectors.body;
         }
+
+        if (!bestSelectors.title || !bestSelectors.body) {
+            const url = page.url();
+            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${url} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
+        }
+
+        const typeWithDelay = async (selector: string, text: string) => {
+            const el = page.locator(selector).first();
+            await el.scrollIntoViewIfNeeded();
+            await el.click();
+            await page.waitForTimeout(500);
+            await el.fill(""); // Clear if possible
+            await page.keyboard.type(text, { delay: 10 }); // Slightly slower for stability
+        };
 
         if (bestSelectors.title) {
             job.last_step = 'S04_input_title';
             saveJob(job);
-            const t = page.locator(bestSelectors.title).first();
-            await t.click();
-            await t.fill(content.title);
+            await typeWithDelay(bestSelectors.title, content.title);
         }
 
         if (bestSelectors.body) {
             job.last_step = 'S05_input_body';
             saveJob(job);
-            const b = page.locator(bestSelectors.body).first();
-            await b.click();
-            await page.keyboard.type(content.body, { delay: 1 });
+            await typeWithDelay(bestSelectors.body, content.body);
             await page.keyboard.press('Escape');
         }
 
