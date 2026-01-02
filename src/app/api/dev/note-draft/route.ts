@@ -123,9 +123,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         page = await context.newPage();
         await page.setDefaultTimeout(15000);
         update('🚀 準備を開始しています...');
-        await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', timeout: 25000 }).catch(() => { });
+        // Visit main domain first to establish referer and cookies
+        await page.goto('https://note.com/', { waitUntil: 'load', timeout: 20000 }).catch(() => { });
+        update('⏳ サイトの状態を確認しています... (5秒待機)');
+        await page.waitForTimeout(5000);
 
-        await page.waitForTimeout(1000 + Math.random() * 500);
+        // Then go to editor with explicit referer
+        await page.goto('https://editor.note.com/notes/new', {
+            waitUntil: 'load',
+            timeout: 25000,
+            referer: 'https://note.com/'
+        }).catch(() => { });
+        update('⌛ エディタを読み込んでいます... (5秒待機)');
+        await page.waitForTimeout(5000);
 
         if (page.url().includes('/login')) {
             update('🔑 ログインが必要なため、手続きを行っています...');
@@ -149,14 +159,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                // Step 2.5: Stabilize session by visiting main site first
-                update('☕ セッションをブラウザに馴染ませています...');
-                await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
-                await page.waitForTimeout(1000 + Math.random() * 500);
+                // Return to editor with stabilization
+                update('☕ ログインを確定させています... (5秒待機)');
+                await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                await page.waitForTimeout(5000);
 
-                // Now go to editor
-                update('🚀 エディタ画面へ向かっています...');
-                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
+                update('🚀 エディタへ再度向かっています...');
+                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                await page.waitForTimeout(5000);
             } else {
                 throw new Error("ログインが必要ですが、資格情報がありません。");
             }
@@ -200,20 +210,21 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             const diag = await page.evaluate(() => ({
                 tags: document.querySelectorAll('*').length,
                 title: document.title,
-                html: document.body.innerHTML.substring(0, 100)
+                html: document.documentElement.outerHTML.substring(0, 300).replace(/\s+/g, ' ')
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ まだ画面が読み込まれていないようです... (状態:${diag.tags})`);
+                update(`⏳ 画面がまだ準備中のようです... (5秒待機して様子を見ます)`);
                 if (i === 2) {
-                    update('🔄 画面をリフレッシュして読み込みを促します');
+                    update('🔄 刺激を与えて読み込みを促します');
+                    await page.mouse.click(600, 400).catch(() => { });
                     await page.reload({ waitUntil: 'load' }).catch(() => { });
                 }
                 if (i === 4) {
-                    update('⚡ 再度エディタへ直接アクセスを試みます');
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                    update('⚡ 別ルートから再接続します');
+                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
-                await page.waitForTimeout(3000);
+                await page.waitForTimeout(5000);
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
@@ -315,13 +326,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.keyboard.press('Backspace');
         };
 
-        update('✍️ タイトルを丁寧に書き込んでいます...');
+        update('✍️ タイトルを書き込む準備をしています...');
+        await page.waitForTimeout(3000);
         await forceInput(bestSelectors.title, content.title);
-        await page.waitForTimeout(500 + Math.random() * 500);
+        await page.waitForTimeout(1000);
 
-        update('📄 本文を流し込んで記事の形を整えています...');
+        update('📄 本文を流し込む準備をしています...');
+        await page.waitForTimeout(3000);
         await forceInput(bestSelectors.body, content.body, true);
-        await page.waitForTimeout(800 + Math.random() * 500);
+        await page.waitForTimeout(1000);
 
         update('💾 大切な下書きとして保存しています...');
         if (bestSelectors.save) {
