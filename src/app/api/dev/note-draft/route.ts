@@ -107,7 +107,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         const context = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 800 }
+            viewport: { width: 1280, height: 1000 },
+            locale: 'ja-JP',
+            timezoneId: 'Asia/Tokyo',
+            extraHTTPHeaders: {
+                'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7'
+            }
         });
         if (fs.existsSync(SESSION_FILE)) {
             const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
@@ -115,6 +120,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         page = await context.newPage();
+        await page.setDefaultTimeout(12000);
         update('S01_INIT (進行中)');
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {
             console.warn("[Action] S01 navigation timed out, but proceeding to check if page loaded.");
@@ -185,25 +191,25 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
         for (let i = 0; i < 9; i++) {
-            // Broaden wait selector: any contenteditable or textarea might indicate the editor is ready
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
-            if (el) {
-                // Wait an extra second for React to settle
-                await page.waitForTimeout(1000);
+            if (el && await el.isVisible()) {
+                await page.waitForTimeout(1000); // React hydration buffer
                 editorFound = true;
                 break;
             }
             update(`S03_解析 (試行 ${i + 1}/9)`);
 
-            // Interaction to trigger loading
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
             if (i === 3) {
                 update('S03_リロード試行');
-                await page.reload({ waitUntil: 'domcontentloaded' });
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
                 await page.waitForTimeout(3000);
             }
             if (i === 5) await page.keyboard.press('Escape');
-            if (i === 7) await page.mouse.dblclick(600, 400).catch(() => { });
+            if (i === 6) {
+                update('S03_強制URLジャンプ');
+                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+            }
         }
 
         const bestSelectors = await page.evaluate(() => {
@@ -251,10 +257,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 100).replace(/\n/g, ' '));
-            // Force session reset on failure to try a clean state next time
             if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-            throw new Error(`解析失敗(S03)。画面テキスト: "${bodyText}..." URL: ${page.url().substring(0, 40)}`);
+            const htmlInfo = await page.evaluate(() => `Len:${document.body.innerText.length}, Tags:${document.getElementsByTagName('*').length}`);
+            throw new Error(`解析失敗(S03)。状況: ${htmlInfo} URL: ${page.url().substring(0, 40)}`);
         }
 
         update('S03 (完了)');
