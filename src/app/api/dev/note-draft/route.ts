@@ -122,16 +122,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
         await page.setDefaultTimeout(15000);
-        update('S01_INIT (進行中)');
-        // Direct editor access is faster and more stable
-        await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {
-            console.warn("[Action] S01 navigation timed out, but proceeding.");
-        });
-        update('S01 (完了)');
+        update('🚀 準備を開始しています...');
+        await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', timeout: 25000 }).catch(() => { });
+
+        await page.waitForTimeout(1000 + Math.random() * 500);
 
         if (page.url().includes('/login')) {
-            console.log("[Action] Login starting...");
-            update('S02_LOGIN (進行中)');
+            update('🔑 ログインが必要なため、手続きを行っています...');
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -141,12 +138,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 await loginBtn.click();
 
                 try {
-                    await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 10000 });
-                    console.log(`[Action] Login successful. URL: ${page.url()}`);
+                    await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 15000, waitUntil: 'load' });
                 } catch (e) {
                     const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
-                    if (errorText) throw new Error(`ログインに失敗しました: ${errorText.trim()}`);
-                    throw new Error("ログイン後の遷移がタイムアウトしました。");
+                    if (errorText) throw new Error(`ログイン失敗: ${errorText.trim()}`);
+                    throw new Error("ログイン後の画面が開きませんでした。");
                 }
 
                 const state = await context.storageState();
@@ -169,57 +165,64 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await page.waitForTimeout(500 + Math.random() * 500);
 
         // Tutorial Bypass (Aggressive)
-        update('S02b_MODAL (進行中)');
+        update('🧹 邪魔な案内を片付けています...');
         try {
-            await page.waitForTimeout(800);
+            await page.waitForTimeout(1000);
             const overlaySelectors = [
                 'button:has-text("次へ")', 'button:has-text("閉じる")',
                 'button:has-text("スキップ")', 'button:has-text("理解しました")',
-                '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]', '[aria-label="Close"]'
+                '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]', '[aria-label="Close"]',
+                'button:has-text("OK")'
             ];
             for (const sel of overlaySelectors) {
                 const btns = await page.locator(sel).all();
                 for (const btn of btns) {
                     if (await btn.isVisible()) {
                         await btn.click().catch(() => { });
-                        await page.waitForTimeout(300);
+                        await page.waitForTimeout(400);
                     }
                 }
             }
-            // Click top-right corner as a last resort to close potential popups
             await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
-        update('🔍 記事の入力場所を探しています...');
+        update('🔍 記事を書き込む準備を整えています...');
 
-        // Wait for Note's SPA hydration
-        await page.waitForTimeout(2000);
+        // Wait for Note's heavy SPA to settle
+        try {
+            await page.waitForLoadState('networkidle', { timeout: 10000 });
+        } catch (e) {
+            console.warn("[Action] Network didn't go idle, but checking DOM anyway.");
+        }
 
-        // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
         for (let i = 0; i < 6; i++) {
-            // Skeleton Detection
-            const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
-            if (tagCount < 50 && i > 0) {
-                update(`⏳ 画面がまだ準備中のようです... (タグ数:${tagCount})`);
+            const diag = await page.evaluate(() => ({
+                tags: document.querySelectorAll('*').length,
+                title: document.title,
+                html: document.body.innerHTML.substring(0, 100)
+            }));
+
+            if (diag.tags < 50 && i > 0) {
+                update(`⏳ まだ画面が読み込まれていないようです... (状態:${diag.tags})`);
                 if (i === 2) {
-                    update('🔄 一度画面をリフレッシュして様子を見ます');
-                    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+                    update('🔄 画面をリフレッシュして読み込みを促します');
+                    await page.reload({ waitUntil: 'load' }).catch(() => { });
                 }
                 if (i === 4) {
-                    update('⚡ 強制的にエディタを呼び出します');
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                    update('⚡ 再度エディタへ直接アクセスを試みます');
+                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
                 }
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(3000);
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el && await el.isVisible()) {
-                await page.waitForTimeout(1000 + Math.random() * 500); // React hydration buffer
+                await page.waitForTimeout(1000 + Math.random() * 1000); // Wait for React hydration
                 editorFound = true;
                 break;
             }
-            update(`👀 読み込みを待っています... (${i + 1}/6回目)`);
+            update(`👀 編集画面が開くのを待っています... (${i + 1}/6回目)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
             if (i === 3) await page.keyboard.press('Escape');
@@ -232,28 +235,25 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 return null;
             };
 
-            // Aggressive search for anything that looks like title/body
             const titleCandidates = [
-                'textarea[placeholder*="タイトル"]', 'textarea[placeholder*="Title"]',
-                'h1[contenteditable="true"]', '[data-testid="note-title"]',
-                'textarea' // Last resort: the first textarea
+                'textarea[placeholder="記事タイトル"]', 'textarea[placeholder*="タイトル"]',
+                'h1[contenteditable="true"]', '[data-testid="note-title"]', 'textarea'
             ];
             const bodyCandidates = [
                 'div.ProseMirror[role="textbox"]', '.note-editor',
-                '[data-editor-type="article"]', '[aria-label*="本文"]',
-                '[role="textbox"]' // Last resort
+                '[data-editor-type="article"]', '[aria-label*="本文"]', '[role="textbox"]'
             ];
 
             let titleEl = null;
             for (const sel of titleCandidates) {
-                titleEl = document.querySelector(sel);
-                if (titleEl) break;
+                const el = document.querySelector(sel);
+                if (el && (el as HTMLElement).offsetParent !== null) { titleEl = el; break; }
             }
 
             let bodyEl = null;
             for (const sel of bodyCandidates) {
-                bodyEl = document.querySelector(sel);
-                if (bodyEl) break;
+                const el = document.querySelector(sel);
+                if (el && (el as HTMLElement).offsetParent !== null) { bodyEl = el; break; }
             }
 
             const saveBtn = Array.from(document.querySelectorAll('button')).find(b =>
