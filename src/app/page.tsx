@@ -1019,29 +1019,29 @@ export default function Home() {
           </div>
           <div
             ref={logContainerRef}
-            className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[300px] overflow-y-auto font-mono text-[11px] scrollbar-thin scroll-smooth"
+            className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[300px] overflow-y-auto font-mono text-[11px] scrollbar-thin flex flex-col"
           >
-            {postLogs.map((log, i) => {
-              const isLast = i === postLogs.length - 1;
+            {postStatus === 'posting' && (
+              <div className="flex gap-4 animate-pulse pb-2 mb-2 border-b border-white/5">
+                <span className="text-white/10 shrink-0">Now</span>
+                <span className="text-orange-500/80 font-bold italic">AIエージェントが次のアクションを準備中...</span>
+              </div>
+            )}
+            {[...postLogs].reverse().map((log, i) => {
+              const isLatest = i === 0;
               return (
-                <div key={i} className={`flex gap-4 group animate-in slide-in-from-left-2 duration-300 ${isLast ? 'bg-white/5 -mx-2 px-2 py-1 rounded-lg' : ''}`}>
-                  <span className={`transition-colors whitespace-nowrap ${isLast ? 'text-white/40' : 'text-white/10'}`}>{log.time}</span>
+                <div key={i} className={`flex gap-4 group animate-in slide-in-from-top-2 duration-300 ${isLatest ? 'bg-white/5 -mx-2 px-2 py-1 rounded-lg border-l-2 border-orange-500' : ''}`}>
+                  <span className={`transition-colors whitespace-nowrap ${isLatest ? 'text-white/40' : 'text-white/10'}`}>{log.time}</span>
                   <span className={`
                     ${log.text.includes('[START]') ? 'text-orange-400 font-bold' : ''}
                     ${log.text.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
-                    ${log.text.includes('[ERROR]') ? 'text-red-400' : isLast ? 'text-white' : 'text-white/60'}
+                    ${log.text.includes('[ERROR]') ? 'text-red-400' : isLatest ? 'text-white font-bold' : 'text-white/60'}
                   `}>
                     {log.text.replace(/\[.*\]\s*/, '')}
                   </span>
                 </div>
               );
             })}
-            {postStatus === 'posting' && (
-              <div className="flex gap-4 animate-pulse pt-2">
-                <span className="text-white/10 shrink-0">--:--:--</span>
-                <span className="text-orange-500/50 italic">AIエージェントが次のアクションを準備中...</span>
-              </div>
-            )}
           </div>
         </div>
 
@@ -1068,16 +1068,8 @@ export default function Home() {
   // Experimental Features (Renamed from isDevMode)
   const [isTitleFabMode, setIsTitleFabMode] = useState(false);
 
-  // Auto-scroll for logs
+  // No longer auto-scrolling to bottom since newest is on top
   const logContainerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTo({
-        top: logContainerRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
-    }
-  }, [postLogs]);
 
   // Helper: Canvas Image Composition (Client-side)
   const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
