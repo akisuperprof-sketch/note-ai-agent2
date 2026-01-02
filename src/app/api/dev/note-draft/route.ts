@@ -105,7 +105,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             browser = await playwright.launch({ headless: true });
         }
 
-        const context = await browser.newContext();
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 800 }
+        });
         if (fs.existsSync(SESSION_FILE)) {
             const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
             await context.addCookies(state.cookies || []);
@@ -152,15 +155,23 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // Tutorial Bypass (Aggressive)
         update('S02b_MODAL (進行中)');
         try {
-            await page.waitForTimeout(500);
-            const overlaySelectors = ['button:has-text("次へ")', 'button:has-text("閉じる")', '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]'];
+            await page.waitForTimeout(800);
+            const overlaySelectors = [
+                'button:has-text("次へ")', 'button:has-text("閉じる")',
+                'button:has-text("スキップ")', 'button:has-text("理解しました")',
+                '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]', '[aria-label="Close"]'
+            ];
             for (const sel of overlaySelectors) {
-                const btn = page.locator(sel).first();
-                if (await btn.isVisible()) {
-                    await btn.click().catch(() => { });
-                    await page.waitForTimeout(200);
+                const btns = await page.locator(sel).all();
+                for (const btn of btns) {
+                    if (await btn.isVisible()) {
+                        await btn.click().catch(() => { });
+                        await page.waitForTimeout(300);
+                    }
                 }
             }
+            // Click top-right corner as a last resort to close potential popups
+            await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
         update('S03_解析 (進行中)');
@@ -173,13 +184,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
-        for (let i = 0; i < 6; i++) {
-            const el = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 4000 }).catch(() => null);
+        for (let i = 0; i < 7; i++) {
+            // Broaden wait selector: any contenteditable or textarea might indicate the editor is ready
+            const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror', { timeout: 4000 }).catch(() => null);
             if (el) {
+                // Confirm it's not a generic input by checking visibility of main areas
                 editorFound = true;
                 break;
             }
-            update(`S03_解析 (試行 ${i + 1}/6)`);
+            update(`S03_解析 (試行 ${i + 1}/7)`);
             if (i === 2) {
                 await page.keyboard.press('Escape');
                 await page.mouse.click(500, 300).catch(() => { });
@@ -194,14 +207,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 return null;
             };
 
-            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], h1[contenteditable="true"], [aria-label*="タイトル"]');
-            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"], [aria-label*="本文"]');
-            const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存'));
+            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], textarea[placeholder*="Title"], h1[contenteditable="true"], [data-testid="note-title"]');
+            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"], [aria-label*="本文"], [aria-label*="Body"]');
+            const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存') || b.textContent?.includes('Save draft'));
 
             return {
-                title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea[placeholder*="タイトル"]')) : null,
+                title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea')) : null,
                 body: bodyEl ? (getSelector(bodyEl) || (bodyEl.classList.contains('ProseMirror') ? 'div.ProseMirror[role="textbox"]' : '.note-editor')) : null,
-                save: saveBtn ? 'button:has-text("下書き保存")' : null
+                save: saveBtn ? (getSelector(saveBtn) || 'button:has-text("下書き保存")') : null
             };
         });
 
