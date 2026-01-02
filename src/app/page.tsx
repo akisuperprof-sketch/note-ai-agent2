@@ -931,6 +931,23 @@ export default function Home() {
   const [notePostConsoleUrl, setNotePostConsoleUrl] = useState("");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Restore logs from session storage on mount
+  useEffect(() => {
+    const saved = sessionStorage.getItem('note_post_logs');
+    const savedStatus = sessionStorage.getItem('note_post_status');
+    const savedUrl = sessionStorage.getItem('note_post_url');
+    if (saved) setPostLogs(JSON.parse(saved));
+    if (savedStatus && savedStatus !== 'idle') setPostStatus(savedStatus as any);
+    if (savedUrl) setNotePostConsoleUrl(savedUrl);
+  }, []);
+
+  // Persist logs to session storage
+  useEffect(() => {
+    if (postLogs.length > 0) sessionStorage.setItem('note_post_logs', JSON.stringify(postLogs));
+    sessionStorage.setItem('note_post_status', postStatus);
+    sessionStorage.setItem('note_post_url', notePostConsoleUrl);
+  }, [postLogs, postStatus, notePostConsoleUrl]);
+
   useEffect(() => {
     if (startTime && postStatus === 'posting') {
       timerRef.current = setInterval(() => {
@@ -955,24 +972,42 @@ export default function Home() {
               <Pen size={20} className="text-orange-500 animate-bounce" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white leading-none mb-1">AIエージェント処理中</h3>
+              <h3 className="text-lg font-black text-white leading-none mb-1">AIエージェント解析</h3>
               <p className="text-xs text-white/40 font-mono italic">経過時間: {elapsedTime}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
-            <div className={`w-1.5 h-1.5 rounded-full ${postStatus === 'posting' ? 'bg-orange-500 animate-pulse' : postStatus === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
-              {postStatus === 'posting' ? 'Processing...' : postStatus === 'success' ? 'Finished' : 'Failed'}
-            </span>
+          <div className="flex items-center gap-2">
+            {postStatus === 'error' && (
+              <button
+                onClick={() => {
+                  setPostStatus('idle');
+                  sessionStorage.clear();
+                }}
+                className="text-[10px] text-white/40 hover:text-white border border-white/10 px-2 py-1 rounded"
+              >
+                Reset
+              </button>
+            )}
+            <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
+              <div className={`w-1.5 h-1.5 rounded-full ${postStatus === 'posting' ? 'bg-orange-500 animate-pulse' : postStatus === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
+                {postStatus === 'posting' ? 'Processing...' : postStatus === 'success' ? 'Finished' : 'Failed'}
+              </span>
+            </div>
           </div>
         </div>
 
         <div className="p-6 space-y-4">
-          <div className="flex items-center gap-2 text-white/40">
-            <Terminal size={16} />
-            <span className="text-[11px] font-black uppercase tracking-widest">処理ログ</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white/40">
+              <Terminal size={16} />
+              <span className="text-[11px] font-black uppercase tracking-widest">診断・処理ログ</span>
+            </div>
+            {postStatus === 'error' && (
+              <span className="text-[9px] text-orange-500/80 animate-pulse">※詳細はコンソールを確認してください</span>
+            )}
           </div>
-          <div className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[250px] overflow-y-auto font-mono text-[11px] scrollbar-hide">
+          <div className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[300px] overflow-y-auto font-mono text-[11px] scrollbar-thin">
             {postLogs.map((log, i) => {
               return (
                 <div key={i} className="flex gap-4 group animate-in slide-in-from-left-2 duration-300">
@@ -990,7 +1025,7 @@ export default function Home() {
             {postStatus === 'posting' && (
               <div className="flex gap-4 animate-pulse">
                 <span className="text-white/10 shrink-0">--:--:--</span>
-                <span className="text-orange-500/50 italic">AIが操作情報を解析中...</span>
+                <span className="text-orange-500/50 italic">AIエージェントがブラウザ内で要素をスキャン中...</span>
               </div>
             )}
           </div>
@@ -1138,8 +1173,8 @@ export default function Home() {
 
   const [jobs, setJobs] = useState<NoteJob[]>([]);
 
-  const handleDraftPost = async () => {
-    if (!articleText) {
+  const handleDraftPost = async (isTest: boolean = false) => {
+    if (!isTest && !articleText) {
       alert("記事が生成されていません");
       return;
     }
@@ -1201,12 +1236,13 @@ export default function Home() {
         body: JSON.stringify({
           article_id: articleId,
           request_id: requestId,
-          title: displayTitle,
-          body: articleText,
+          title: isTest ? "【テスト】ダミータイトル" : displayTitle,
+          body: isTest ? "これは自動投稿のフロー確認用ダミー本文です。" : articleText,
           tags: hashtags,
           mode: appMode,
           email: noteEmail,
-          password: notePassword
+          password: notePassword,
+          isTest
         }),
       });
 
@@ -1808,12 +1844,20 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <button
-                      onClick={handleDraftPost}
-                      className="w-full py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
-                    >
-                      <Send size={18} /> Noteへ実投稿（下書き）
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleDraftPost(false)}
+                        className="py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
+                      >
+                        <Send size={18} /> 本番投稿
+                      </button>
+                      <button
+                        onClick={() => handleDraftPost(true)}
+                        className="py-4 rounded-2xl border-2 border-dashed border-white/20 text-white/40 font-bold flex items-center justify-center gap-3 hover:border-white/40 hover:text-white transition-all text-sm uppercase tracking-widest"
+                      >
+                        <Pen size={16} /> ダミー投稿テスト
+                      </button>
+                    </div>
                   </>
                 )}
               </div>

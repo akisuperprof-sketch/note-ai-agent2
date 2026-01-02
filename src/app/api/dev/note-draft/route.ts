@@ -106,15 +106,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 const loginBtn = page.locator('button:has-text("ログイン"), button[type="submit"], .nc-login__submit-button').first();
                 await loginBtn.click();
 
-                // Wait for navigation or a successful login indicator (like the avatar or dashboard)
+                // Wait for navigation or a successful login indicator
                 try {
                     await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 20000 });
-                    console.log("[Action] Login redirect successful.");
+                    console.log(`[Action] Login successful. URL: ${page.url()}`);
                 } catch (e) {
                     // Check if there's an error message on the page
                     const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
                     if (errorText) throw new Error(`ログインに失敗しました: ${errorText.trim()}`);
-                    throw new Error("ログイン後の遷移がタイムアウトしました。");
+                    throw new Error("ログイン後の遷移がタイムアウトしました。アカウント情報を再確認してください。");
                 }
 
                 const state = await context.storageState();
@@ -125,6 +125,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             } else {
                 throw new Error("Login required but credentials not provided.");
             }
+        }
+
+        // Verify Login Identity (Diagnostic)
+        try {
+            const userName = await page.locator('.nc-header-account-menu__profile-name, [aria-label*="メニュー"]').first().textContent();
+            console.log(`[Diagnostic] Logged in as: ${userName?.trim() || 'Unknown'}`);
+        } catch (e) {
+            console.warn("[Diagnostic] Could not determine user name.");
         }
 
         job.last_step = 'S02b_bypass_tutorials';
@@ -154,127 +162,78 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         job.last_step = 'S03_find_selectors';
         saveJob(job);
 
-        // Wait for the main editor container or the publish button to ensure it's loaded
-        try {
-            await page.waitForSelector('button:has-text("公開設定"), [data-testid="publisher-button"]', { timeout: 15000 });
-        } catch (e) {
-            console.warn("[Action] Main editor elements not found by selector, proceeding with fallback wait.");
-            await page.waitForTimeout(5000);
-        }
-
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(500);
-        await page.keyboard.press('Escape'); // Double tap to clear tutorials
+        // Wait for the editor to stabilize
+        await page.waitForTimeout(5000);
 
         const bestSelectors = await page.evaluate(() => {
-            const candidates: any[] = [];
-            // Target inputs, textareas, contenteditable divs, and role=textbox
-            const els = document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']");
-
-            els.forEach(el => {
-                const rect = el.getBoundingClientRect();
-                // Ignore hidden or tiny elements
-                if (rect.width < 10 || rect.height < 10) return;
-
-                const ph = (el.getAttribute("placeholder") || "").toLowerCase();
-                const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-                const testId = (el.getAttribute("data-testid") || el.getAttribute("data-test-id") || "").toLowerCase();
-                const tag = el.tagName;
-                const ce = el.getAttribute("contenteditable");
-                const role = el.getAttribute("role");
-
-                let sTitle = 0;
-                // Note uses "記事タイトル" or "タイトル"
-                if (ph.includes("タイトル") || ph.includes("title")) sTitle += 20;
-                if (aria.includes("タイトル") || aria.includes("title")) sTitle += 20;
-                if (testId.includes("title")) sTitle += 30;
-                if (tag === "H1" || (tag === "INPUT" && rect.top < 300)) sTitle += 10;
-
-                let sBody = 0;
-                // Note uses "本文" or "書いてみませんか"
-                if (ph.includes("本文") || ph.includes("書いてみませんか") || ph.includes("content")) sBody += 20;
-                if (aria.includes("本文") || aria.includes("body")) sBody += 20;
-                if (testId.includes("body") || testId.includes("editor")) sBody += 30;
-                if (ce === "true" || role === "textbox" || tag === "TEXTAREA") sBody += 10;
-                if (rect.height > 200) sBody += 15;
-
-                let selector = el.tagName.toLowerCase();
+            const getSelector = (el: Element) => {
                 const tid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
-                if (tid) selector = `[data-testid="${tid}"]`;
-                else if (el.getAttribute("name")) selector = `[name="${el.getAttribute("name")}"]`;
-                else if (el.getAttribute("id")) selector = `#${el.getAttribute("id")}`;
+                if (tid) return `[data-testid="${tid}"]`;
+                if (el.getAttribute("id")) return `#${el.getAttribute("id")}`;
+                return null;
+            };
 
-                candidates.push({ selector, sTitle, sBody, ph, testId });
-            });
-
-            const sortedTitle = [...candidates].sort((a, b) => b.sTitle - a.sTitle);
-            const sortedBody = [...candidates].sort((a, b) => b.sBody - a.sBody);
+            const titleEl = document.querySelector('textarea[placeholder="記事タイトル"], h1[contenteditable="true"]');
+            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor');
+            const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存'));
 
             return {
-                title: sortedTitle[0]?.sTitle > 0 ? sortedTitle[0].selector : null,
-                body: sortedBody[0]?.sBody > 0 ? sortedBody[0].selector : null,
-                debug_count: candidates.length,
-                top_title_score: sortedTitle[0]?.sTitle || 0,
-                top_body_score: sortedBody[0]?.sBody || 0
+                title: titleEl ? (getSelector(titleEl) || 'textarea[placeholder="記事タイトル"]') : null,
+                body: bodyEl ? (getSelector(bodyEl) || 'div.ProseMirror[role="textbox"]') : null,
+                save: saveBtn ? 'button:has-text("下書き保存")' : null
             };
         });
 
-        console.log(`[Action] Smart Selector Results:`, bestSelectors);
+        console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            console.log("[Action] Smart selector failed, trying structural fallback...");
-            const fallbackSelectors = await page.evaluate(() => {
-                const h1 = document.querySelector('h1[contenteditable="true"], input[placeholder*="タイトル"]');
-                const editor = document.querySelector('.note-editor, .ProseMirror, [role="textbox"]');
-                return {
-                    title: h1 ? (h1.getAttribute('data-testid') ? `[data-testid="${h1.getAttribute('data-testid')}"]` : 'h1[contenteditable="true"]') : null,
-                    body: editor ? (editor.getAttribute('data-testid') ? `[data-testid="${editor.getAttribute('data-testid')}"]` : '.ProseMirror') : null
-                };
-            });
-            bestSelectors.title = bestSelectors.title || fallbackSelectors.title;
-            bestSelectors.body = bestSelectors.body || fallbackSelectors.body;
+            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${page.url()} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
         }
 
-        if (!bestSelectors.title || !bestSelectors.body) {
-            const url = page.url();
-            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${url} (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
-        }
-
-        const typeWithDelay = async (selector: string, text: string) => {
+        const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
             const el = page.locator(selector).first();
             await el.scrollIntoViewIfNeeded();
             await el.click();
             await page.waitForTimeout(500);
-            await el.fill(""); // Clear if possible
-            await page.keyboard.type(text, { delay: 10 }); // Slightly slower for stability
+
+            // For React-based editors, sometimes simple fill is not enough
+            await page.evaluate(({ sel, txt, bodyMode }: { sel: string, txt: string, bodyMode: boolean }) => {
+                const element = document.querySelector(sel) as any;
+                if (!element) return;
+                if (bodyMode) {
+                    element.innerHTML = `<p>${txt}</p>`;
+                } else {
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+                    if (nativeSetter) nativeSetter.call(element, txt);
+                    else element.value = txt;
+                }
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+            }, { sel: selector, txt: text, bodyMode: isBody });
+
+            // Also use keyboard to trigger auto-save logic
+            await page.keyboard.press('End');
+            await page.keyboard.type(' ', { delay: 10 });
+            await page.keyboard.press('Backspace');
         };
 
-        if (bestSelectors.title) {
-            job.last_step = 'S04_input_title';
-            saveJob(job);
-            await typeWithDelay(bestSelectors.title, content.title);
-        }
+        job.last_step = 'S04_input_title';
+        saveJob(job);
+        await forceInput(bestSelectors.title, content.title);
 
-        if (bestSelectors.body) {
-            job.last_step = 'S05_input_body';
-            saveJob(job);
-            await typeWithDelay(bestSelectors.body, content.body);
-            await page.keyboard.press('Escape');
-        }
+        job.last_step = 'S05_input_body';
+        saveJob(job);
+        await forceInput(bestSelectors.body, content.body, true);
 
-        // 5. 保存ボタンを明示的にクリック（確実な保存を促す）
         job.last_step = 'S06_click_save';
         saveJob(job);
-        try {
-            // "公開設定" button is usually the trigger for a stable draft state in the new editor
-            const saveBtn = page.locator('button:has-text("公開設定"), button:has-text("保存"), button:has-text("完了")').first();
-            if (await saveBtn.isVisible()) {
-                console.log(`[Action] Clicking Save/Publish button.`);
-                await saveBtn.click();
-                await page.waitForTimeout(3000);
-            }
-        } catch (e) {
-            console.warn(`[Action] Save button not found, relying on auto-save.`);
+        if (bestSelectors.save) {
+            console.log(`[Action] Clicking Save Draft button.`);
+            await page.click(bestSelectors.save);
+            await page.waitForTimeout(3000);
+        } else {
+            // Fallback for save button if selector was missed
+            await page.click('button:has-text("下書き保存")').catch(() => { });
         }
 
         job.last_step = 'S07_wait_save';
