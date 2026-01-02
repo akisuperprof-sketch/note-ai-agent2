@@ -121,10 +121,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         page = await context.newPage();
-        await page.setDefaultTimeout(12000);
+        await page.setDefaultTimeout(15000);
         update('S01_INIT (進行中)');
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {
-            console.warn("[Action] S01 navigation timed out, but proceeding to check if page loaded.");
+        // Direct editor access is faster and more stable
+        await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {
+            console.warn("[Action] S01 navigation timed out, but proceeding.");
         });
         update('S01 (完了)');
 
@@ -152,7 +153,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
-                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
+                // Return to editor after login
+                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
             } else {
                 throw new Error("Login required but credentials not provided.");
             }
@@ -183,11 +185,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         update('S03_解析 (進行中)');
 
-        // Wait for Note's SPA redirect to editor.note.com
-        update('S03_待機 (リダイレクト中)');
-        await page.waitForURL((u: URL) => u.host.includes('editor.note.com') || u.pathname.includes('/edit'), { timeout: 15000 }).catch(() => {
-            console.warn("[Action] Redirect to editor did not finish, but checking DOM anyway.");
-        });
+        // Wait for Note's SPA hydration
+        update('S03_待機 (ロード中)');
+        await page.waitForTimeout(2000);
 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
