@@ -128,15 +128,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
         await page.setDefaultTimeout(15000);
-        update('🚀 サイトへ移動しています...');
+        update('🚀 サイトへ移動しました。画面の準備を待っています...');
+        // Human Observational Wait: Sit still after initial navigation
         await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(8000); // 8s wait to look like a human reading the home page
 
         // Check if already on editor or need to navigate
         if (page.url().includes('/notes/new')) {
-            update('✅ すでにエディタが開いています');
+            update('✅ エディタに直通しました。同期を待っています... (5秒待機)');
+            await page.waitForTimeout(5000);
         } else if (page.url().includes('/login')) {
-            update('🔑 ログイン手続きを開始します...');
+            update('🔑 ログインが必要なため、準備しています...');
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -147,16 +149,22 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 try {
                     await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 15000, waitUntil: 'load' });
+                    update('🔓 ログイン完了。環境の安定を待っています... (8秒待機)');
+                    await page.waitForTimeout(8000);
                 } catch (e) {
                     const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
                     if (errorText) throw new Error(`ログイン失敗: ${errorText.trim()}`);
                     throw new Error("ログイン後の画面が開きませんでした。");
                 }
 
+                const state = await context.storageState();
+                if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
+                fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
+
                 // Visit main site to stabilize
-                update('☕ ログインを確定させています...');
+                update('☕ マイページを読み込んでいます...');
                 await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
-                await page.waitForTimeout(3000);
+                await page.waitForTimeout(5000);
             } else {
                 throw new Error("ログインが必要ですが、資格情報がありません。");
             }
@@ -165,24 +173,27 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // Human Action: Attempt to click "Post" button if not in editor
         if (!page.url().includes('editor.note.com')) {
             update('🖱️ 「投稿」ボタンを探してクリックします...');
-            const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button').first();
+            // Wait for header elements to really appear
+            await page.waitForSelector('.nc-header', { timeout: 5000 }).catch(() => { });
+            const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button, .nc-header__post-nav-item').first();
+
             if (await postBtn.isVisible()) {
                 await postBtn.click();
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(3000);
                 // Handle sub-menu for "Text" if visible
-                const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"]').first();
+                const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"], a:has-text("テキスト")').first();
                 if (await textBtn.isVisible()) {
                     await textBtn.click();
                 } else {
-                    // If no sub-menu, maybe direct URL is better now that we have a referer
                     await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
             } else {
-                update('⚡ ボタンが見つからないため、直接エディタへ移動します');
+                update('⚡ 直接エディタへ移動します');
                 await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
             }
-            // Wait for editor to load after click/redirect
-            await page.waitForTimeout(5000);
+            // CRITICAL: Wait for editor application to boot up
+            update('⌛ エディタが起動するのを静かに待っています... (10秒待機)');
+            await page.waitForTimeout(10000);
         }
         update('✅ 編集画面への到達を確認しました');
 
@@ -226,22 +237,32 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ 画面がまだ準備中のようです... (5秒待機して様子を見ます)`);
+                update(`⏳ 画面がまだ静止しています... (状態:${diag.tags})`);
+                if (i === 1) {
+                    update('🖱️ 画面を一度クリックして反応を確かめます');
+                    await page.mouse.click(640, 500).catch(() => { });
+                }
                 if (i === 2) {
-                    update('🔄 刺激を与えて読み込みを促します');
-                    await page.mouse.click(600, 400).catch(() => { });
+                    update('🔄 意識的にページを更新して再読み込みさせます');
                     await page.reload({ waitUntil: 'load' }).catch(() => { });
                 }
+                if (i === 3) {
+                    update('📜 画面をスクロールして要素の出現を待ちます');
+                    await page.mouse.wheel(0, 300);
+                    await page.waitForTimeout(1000);
+                    await page.mouse.wheel(0, -300);
+                }
                 if (i === 4) {
-                    update('⚡ 別ルートから再接続します');
+                    update('⚡ 最終手段として、別ルートで切り込みます');
                     await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
-                await page.waitForTimeout(5000);
+                await page.waitForTimeout(6000); // Decent wait to let JS react
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el && await el.isVisible()) {
-                await page.waitForTimeout(1000 + Math.random() * 1000); // Wait for React hydration
+                update('👁️ 編集画面の内容を確認しています... (5秒待機)');
+                await page.waitForTimeout(5000); // Observational wait: looking at the screen after load
                 editorFound = true;
                 break;
             }
@@ -338,31 +359,36 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 }, { sel: selector, txt: chunk });
 
                 // Randomized human-like pause between "bursts"
-                await page.waitForTimeout(100 + Math.random() * 300);
+                await page.waitForTimeout(400 + Math.random() * 600);
 
-                // Extra pause at paragraph ends
+                // Extra pause at paragraph ends (Human checking the progress)
                 if (chunk.includes('\n')) {
-                    await page.waitForTimeout(300 + Math.random() * 500);
+                    update('👀 打ち間違いがないか確認しています...');
+                    await page.waitForTimeout(1200 + Math.random() * 800);
                 }
             }
         };
 
         update('✍️ タイトルを入力しています...');
+        await page.waitForTimeout(2000); // Pre-typing pause
         await forceInput(bestSelectors.title, content.title);
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(3000); // After-typing reflection
 
         update('📄 本文を作成しています...');
+        await page.waitForTimeout(2000); // Switching context pause
         await forceInput(bestSelectors.body, content.body, true);
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(4000); // Final proofread pause
 
-        update('💾 大切な下書きとして保存しています...');
+        update('💾 内容を最終確認して保存ボタンを押します...');
+        await page.waitForTimeout(3000); // Final pause before button click
         if (bestSelectors.save) {
             console.log(`[Action] Clicking Save Draft button.`);
             await page.click(bestSelectors.save);
-            await page.waitForTimeout(3000);
+            await page.waitForTimeout(5000); // Long wait for server sync
         } else {
             // Fallback for save button if selector was missed
             await page.click('button:has-text("下書き保存")').catch(() => { });
+            await page.waitForTimeout(5000);
         }
         update('✨ 保存が完了しました');
 
