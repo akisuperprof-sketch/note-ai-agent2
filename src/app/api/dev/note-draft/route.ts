@@ -162,14 +162,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         saveJob(job);
 
         // Wait for editor with slightly reduced timeout
-        console.log(`[Action] Waiting for editor elements... Current URL: ${page.url()}`);
-        const editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 12000 }).catch(() => null);
+        let editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"], h1[contenteditable="true"]', { timeout: 15000 }).catch(() => null);
 
         if (!editorFound) {
-            console.warn("[Action] Editor elements not found within timeout. Trying to clear possible modals...");
-            // Last ditch effort: press escape and wait 2 more seconds
+            console.warn("[Action] Editor not found, trying Escape + Click fallback...");
             await page.keyboard.press('Escape');
+            await page.waitForTimeout(1000);
+            // Click the main area to trigger focus/loading
+            await page.mouse.click(500, 400).catch(() => { });
             await page.waitForTimeout(2000);
+            editorFound = await page.waitForSelector('textarea, [role="textbox"]', { timeout: 5000 }).catch(() => null);
         }
 
         const bestSelectors = await page.evaluate(() => {
@@ -180,8 +182,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 return null;
             };
 
-            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], h1[contenteditable="true"], input[placeholder*="タイトル"]');
-            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"]');
+            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], h1[contenteditable="true"], [aria-label*="タイトル"]');
+            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"], [aria-label*="本文"]');
             const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存'));
 
             return {
@@ -199,16 +201,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     .map(el => ({
                         tag: el.tagName,
                         ph: el.getAttribute('placeholder'),
-                        text: (el as HTMLElement).innerText?.substring(0, 20),
+                        aria: el.getAttribute('aria-label'),
                         rect: el.getBoundingClientRect()
                     }));
                 return {
                     url: window.location.href,
-                    text: document.body.innerText.substring(0, 300).replace(/\n/g, ' '),
-                    inputs: inputs.filter(i => i.rect.width > 0).slice(0, 5)
+                    title: document.title,
+                    text: document.body.innerText.substring(0, 200).replace(/\n/g, ' '),
+                    inputs: inputs.filter(i => i.rect.width > 0).slice(0, 8)
                 };
             });
-            throw new Error(`入力欄の特定に失敗しました。S03エラー。`);
+            throw new Error(`入力欄が見つかりません(S03)。URL: ${page.url()} Dump: ${JSON.stringify(pageDump)}`);
         }
 
         job.last_step = 'S03 (完了)';
