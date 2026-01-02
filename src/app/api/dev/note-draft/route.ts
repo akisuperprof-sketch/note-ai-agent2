@@ -129,17 +129,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             // Mask Plugins
             Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            // Kill Service Workers (often cause freezes in headless)
+            if (navigator.serviceWorker) {
+                navigator.serviceWorker.getRegistrations().then(regs => {
+                    for (let reg of regs) reg.unregister();
+                });
+            }
             // Mask Chrome
             (window as any).chrome = { runtime: {} };
             // Mask Languages
             Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
-            // Mask Permissions
-            const originalQuery = window.navigator.permissions.query;
-            (window.navigator.permissions as any).query = (parameters: any) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
         });
 
         if (fs.existsSync(SESSION_FILE)) {
@@ -285,30 +284,26 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ 画面が固まっています (${diag.tags})。あらゆる手段を講じます...`);
+                update(`⏳ 画面が固まっています (${diag.tags})。タイトル: "${diag.title || '空'}"`);
 
                 // Deep Audit: What is actually in the HTML?
                 const pageContent = await page.evaluate(() => document.documentElement.outerHTML.substring(0, 500));
                 console.log(`[Diagnostic HTML] ${pageContent}`);
 
                 if (i === 1) {
-                    update('🖱️ 画面全体をタップして起動を促します');
-                    for (let x = 0; x < 3; x++) {
-                        const px = 100 + x * 100;
-                        const py = 300 + x * 100;
-                        // Use touchscreen if available, otherwise fallback to mouse click
-                        await (page.touchscreen ? page.touchscreen.tap(px, py) : page.mouse.click(px, py)).catch(() => { });
+                    update('🖱️ 画面を多角的にクリックして刺激を与えます');
+                    for (let pt of [{ x: 200, y: 400 }, { x: 400, y: 200 }, { x: 100, y: 100 }]) {
+                        await (page.touchscreen ? page.touchscreen.tap(pt.x, pt.y) : page.mouse.click(pt.x, pt.y)).catch(() => { });
                     }
                 }
                 if (i === 2) {
-                    update('🔄 認証を一度破棄して、クリーンな再開を試みます');
-                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-                    await page.reload({ waitUntil: 'load' }).catch(() => { });
+                    update('🔄 意識的にページを強制更新します');
+                    await page.reload({ waitUntil: 'networkidle' }).catch(() => { });
                 }
                 if (i === 4) {
-                    update('⚡ 最終突破：デスクトップモードに切り替えて再接近します');
-                    // In a more complex setup we would change the context, but for now we try a direct force redirect
-                    await page.goto('https://editor.note.com/notes/new?force_pc=1', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                    update('⚡ 最終手段：ログイン情報をリセットして再挑戦します');
+                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
+                    await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
                 }
                 await page.waitForTimeout(6000);
             }
