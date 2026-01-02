@@ -1263,6 +1263,11 @@ export default function Home() {
       if (contentType && contentType.includes("application/json")) {
         data = await res.json();
       } else {
+        // Handle 504 or other non-JSON responses gracefully
+        if (res.status === 504) {
+          console.warn("Main POST request timed out (504), but job might still be running. Continuing to poll...");
+          return; // Keep pollInterval running
+        }
         const text = await res.text();
         console.error("Non-JSON response received:", text);
         throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
@@ -1283,6 +1288,11 @@ export default function Home() {
         setPostLogs(prev => [...prev, { text: `[ERROR] ${msg}${step}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       }
     } catch (e: any) {
+      // Avoid clearing interval on transient networking errors if they look like timeouts
+      if (e.message?.includes('504')) {
+        console.warn("Caught 504 in handleDraftPost, keeping poll active.");
+        return;
+      }
       clearInterval(pollInterval);
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
