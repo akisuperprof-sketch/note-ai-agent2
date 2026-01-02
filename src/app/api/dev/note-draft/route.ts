@@ -127,6 +127,30 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
+        job.last_step = 'S02b_bypass_tutorials';
+        saveJob(job);
+        try {
+            // Wait a bit for potential overlays to appear
+            await page.waitForTimeout(2000);
+            const overlaySelectors = [
+                'button:has-text("次へ")',
+                'button:has-text("閉じる")',
+                '.nc-tutorial-modal__close',
+                '.nc-survey-modal__close',
+                'div[aria-label="閉じる"]'
+            ];
+            for (const sel of overlaySelectors) {
+                const btn = page.locator(sel).first();
+                if (await btn.isVisible()) {
+                    console.log(`[Action] Closing overlay: ${sel}`);
+                    await btn.click();
+                    await page.waitForTimeout(500);
+                }
+            }
+        } catch (e) {
+            console.warn("[Action] Tutorial bypass error or nothing found.");
+        }
+
         job.last_step = 'S03_find_selectors';
         saveJob(job);
 
