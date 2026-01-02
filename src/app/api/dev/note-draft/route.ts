@@ -149,44 +149,31 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
         update('S02 (完了)');
 
-        // Verify Login Identity (Diagnostic)
-        try {
-            const userName = await page.locator('.nc-header-account-menu__profile-name, [aria-label*="メニュー"]').first().textContent();
-            console.log(`[Diagnostic] Logged in as: ${userName?.trim() || 'Unknown'}`);
-        } catch (e) {
-            console.warn("[Diagnostic] Could not determine user name.");
-        }
-
-        // Tutorial Bypass (Minimized wait)
+        // Tutorial Bypass (Aggressive)
         update('S02b_MODAL (進行中)');
         try {
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(500);
             const overlaySelectors = ['button:has-text("次へ")', 'button:has-text("閉じる")', '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]'];
             for (const sel of overlaySelectors) {
                 const btn = page.locator(sel).first();
                 if (await btn.isVisible()) {
-                    console.log(`[Action] Closing overlay: ${sel}`);
-                    await btn.click();
-                    await page.waitForTimeout(300);
+                    await btn.click().catch(() => { });
+                    await page.waitForTimeout(200);
                 }
             }
-        } catch (e) {
-            console.warn("[Action] Tutorial bypass error or nothing found.");
-        }
+        } catch (e) { }
 
         update('S03_解析 (進行中)');
 
-        // Wait for editor with slightly reduced timeout
-        let editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"], h1[contenteditable="true"]', { timeout: 15000 }).catch(() => null);
+        // Faster editor detection
+        let editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"]', { timeout: 8000 }).catch(() => null);
 
         if (!editorFound) {
-            console.warn("[Action] Editor not found, trying Escape + Click fallback...");
+            console.warn("[Action] Quick fallback for S03...");
             await page.keyboard.press('Escape');
+            await page.mouse.click(500, 300).catch(() => { });
             await page.waitForTimeout(1000);
-            // Click the main area to trigger focus/loading
-            await page.mouse.click(500, 400).catch(() => { });
-            await page.waitForTimeout(2000);
-            editorFound = await page.waitForSelector('textarea, [role="textbox"]', { timeout: 5000 }).catch(() => null);
+            editorFound = await page.waitForSelector('textarea, [role="textbox"]', { timeout: 4000 }).catch(() => null);
         }
 
         const bestSelectors = await page.evaluate(() => {
