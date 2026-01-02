@@ -37,7 +37,7 @@ note.comのエディタ（`editor.note.com`）において、Playwright等によ
    URLが `/new` から `/edit/`（固有ID付き）に変わることをもって成功と判定。
 
 ## 3. テスト済みアカウント
-- UserID: aki.superprof@gmail.com
+- UserID: (削除済み)
 - Status: 正常にログイン・下書き作成ができることを確認。
 
 ---
