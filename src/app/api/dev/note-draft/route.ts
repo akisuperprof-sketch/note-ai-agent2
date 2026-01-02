@@ -154,18 +154,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
                 // Step 2.5: Stabilize session by visiting main site first
-                update('S02c_セッション浸透 (進行中)');
+                update('☕ セッションをブラウザに馴染ませています...');
                 await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
-                await page.waitForTimeout(1000);
+                await page.waitForTimeout(1000 + Math.random() * 500);
 
                 // Now go to editor
-                update('S02d_エディタ移動 (進行中)');
+                update('🚀 エディタ画面へ向かっています...');
                 await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
             } else {
-                throw new Error("Login required but credentials not provided.");
+                throw new Error("ログインが必要ですが、資格情報がありません。");
             }
         }
-        update('S02 (完了)');
+        update('✅ ログイン・アクセス完了');
+        await page.waitForTimeout(500 + Math.random() * 500);
 
         // Tutorial Bypass (Aggressive)
         update('S02b_MODAL (進行中)');
@@ -189,10 +190,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
-        update('S03_解析 (進行中)');
+        update('🔍 記事の入力場所を探しています...');
 
         // Wait for Note's SPA hydration
-        update('S03_待機 (ロード中)');
         await page.waitForTimeout(2000);
 
         // Patiently poll for elements (Note's editor is heavy)
@@ -201,19 +201,25 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // Skeleton Detection
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
             if (tagCount < 50 && i > 0) {
-                update(`S03_空白検知 (Tags:${tagCount})`);
-                if (i === 2) await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-                if (i === 4) await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                update(`⏳ 画面がまだ準備中のようです... (タグ数:${tagCount})`);
+                if (i === 2) {
+                    update('🔄 一度画面をリフレッシュして様子を見ます');
+                    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+                }
+                if (i === 4) {
+                    update('⚡ 強制的にエディタを呼び出します');
+                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                }
                 await page.waitForTimeout(2000);
             }
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el && await el.isVisible()) {
-                await page.waitForTimeout(1000); // React hydration buffer
+                await page.waitForTimeout(1000 + Math.random() * 500); // React hydration buffer
                 editorFound = true;
                 break;
             }
-            update(`S03_解析 (試行 ${i + 1}/6)`);
+            update(`👀 読み込みを待っています... (${i + 1}/6回目)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
             if (i === 3) await page.keyboard.press('Escape');
@@ -309,15 +315,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.keyboard.press('Backspace');
         };
 
-        update('S04_タイトル記入 (進行中)');
+        update('✍️ タイトルを丁寧に書き込んでいます...');
         await forceInput(bestSelectors.title, content.title);
-        update('S04 (完了)');
+        await page.waitForTimeout(500 + Math.random() * 500);
 
-        update('S05_本文記入 (進行中)');
+        update('📄 本文を流し込んで記事の形を整えています...');
         await forceInput(bestSelectors.body, content.body, true);
-        update('S05 (完了)');
+        await page.waitForTimeout(800 + Math.random() * 500);
 
-        update('S06_保存ボタン (進行中)');
+        update('💾 大切な下書きとして保存しています...');
         if (bestSelectors.save) {
             console.log(`[Action] Clicking Save Draft button.`);
             await page.click(bestSelectors.save);
@@ -326,9 +332,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // Fallback for save button if selector was missed
             await page.click('button:has-text("下書き保存")').catch(() => { });
         }
-        update('S06 (完了)');
+        update('✨ 保存が完了しました');
 
-        update('S07_完了待機 (進行中)');
+        update('🏁 最終確認を行っています...');
         console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
 
         try {
@@ -341,9 +347,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } catch (e) {
             console.warn(`[Action] URL transition timeout. Final URL: ${page.url()}`);
         }
-        update('S07 (完了)');
 
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(2000);
 
         job.status = 'success';
         job.finished_at = new Date().toISOString();
@@ -352,10 +357,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // If it still says "/new", it means the post likely didn't persist as a draft with a unique ID
         if (finalUrl.endsWith('/new')) {
-            throw new Error(`下書きURLの取得に失敗しました。現在のURL: ${finalUrl}`);
+            throw new Error(`下書き保存は完了しましたが、URLの特定に失敗しました。現在のURL: ${finalUrl}`);
         }
 
-        update('S99 (完了)');
+        update('🎉 すべての作業が正常に完了しました！');
         saveJob(job); // Final save after all updates
 
         await browser.close();
