@@ -1258,45 +1258,56 @@ export default function Home() {
         }),
       });
 
-      let data;
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        data = await res.json();
-      } else {
-        // Handle 504 or other non-JSON responses gracefully
-        if (res.status === 504) {
-          console.warn("Main POST request timed out (504), but job might still be running. Continuing to poll...");
-          return; // Keep pollInterval running
-        }
-        const text = await res.text();
-        console.error("Non-JSON response received:", text);
-        throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
-      }
+      if (!res.body) throw new Error("No response body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      if (res.status === 200 && (data.status === "success" || data.status === "pending")) {
-        console.log("Job status:", data.status, data.job_id);
-        if (data.status === "success") {
-          setPostStatus("success");
-          setPostLogs(prev => [...prev, { text: `S99 (完了)`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.error) {
+              setPostStatus("error");
+              setPostLogs(prev => [...prev, { text: `[ERROR] ${data.error}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+              break;
+            }
+
+            if (data.last_step) {
+              const base = data.last_step;
+              setPostLogs(prev => {
+                if (!prev.find(p => p.text === base)) {
+                  return [...prev, { text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }];
+                }
+                return prev;
+              });
+            }
+
+            if (data.status === 'success') {
+              setPostStatus("success");
+              if (data.note_url) setNotePostConsoleUrl(data.note_url);
+            } else if (data.status === 'failed') {
+              setPostStatus("error");
+            }
+          } catch (e) {
+            console.error("Parse error in stream:", e);
+          }
         }
-        if (data.note_url) setNotePostConsoleUrl(data.note_url);
-      } else {
-        clearInterval(pollInterval);
-        setPostStatus("error");
-        const msg = (data as any).error_message || (data as any).error || "Unknown Error";
-        const step = (data as any).last_step ? ` (${(data as any).last_step})` : "";
-        setPostLogs(prev => [...prev, { text: `[ERROR] ${msg}${step}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       }
     } catch (e: any) {
-      // Avoid clearing interval on transient networking errors if they look like timeouts
-      if (e.message?.includes('504')) {
-        console.warn("Caught 504 in handleDraftPost, keeping poll active.");
-        return;
-      }
-      clearInterval(pollInterval);
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
       setPostLogs(prev => [...prev, { text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+    } finally {
+      clearInterval(pollInterval);
     }
   };
 

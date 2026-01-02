@@ -14,67 +14,80 @@ const LOG_DIR = isServerless
     : path.join(process.cwd(), '.gemini/data/logs');
 
 export async function POST(req: NextRequest) {
-    try {
-        const { article_id, title, body, mode, request_id, email, password } = await req.json();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        async start(controller) {
+            const sendUpdate = (data: any) => {
+                controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+            };
 
-        if (!validateDevMode(mode)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        if (!DEV_SETTINGS.AUTO_POST_ENABLED) return NextResponse.json({ error: "Disabled" }, { status: 503 });
+            try {
+                const { article_id, title, body, mode, request_id, email, password } = await req.json();
 
-        const job: NoteJob = {
-            job_id: `job_${Date.now()}`,
-            article_id,
-            request_id,
-            mode: 'development',
-            status: 'pending',
-            attempt_count: 1,
-            created_at: new Date().toISOString(),
-            started_at: null,
-            finished_at: null,
-            posted_at: null,
-            note_url: null,
-            error_code: null,
-            error_message: null,
-            last_step: 'S00_init'
-        };
+                if (!validateDevMode(mode)) {
+                    sendUpdate({ error: "Forbidden" });
+                    controller.close();
+                    return;
+                }
 
-        saveJob(job);
+                const job: NoteJob = {
+                    job_id: `job_${Date.now()}`,
+                    article_id,
+                    request_id,
+                    mode: 'development',
+                    status: 'running',
+                    attempt_count: 1,
+                    created_at: new Date().toISOString(),
+                    started_at: new Date().toISOString(),
+                    finished_at: null,
+                    posted_at: null,
+                    note_url: null,
+                    error_code: null,
+                    error_message: null,
+                    last_step: 'S00_開始'
+                };
 
-        // Await the action to prevent Vercel from killing the process.
-        // We optimize the internal timeouts to stay within 60s.
-        const result = await runNoteDraftAction(job, { title, body, email, password });
-        return NextResponse.json(result);
-    } catch (e: any) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
-    }
+                sendUpdate({ status: 'running', last_step: job.last_step });
+
+                // Pass the stream controller to the action to allow real-time logging
+                await runNoteDraftAction(job, { title, body, email, password }, (step) => {
+                    job.last_step = step;
+                    sendUpdate({ status: 'running', last_step: step });
+                });
+
+                sendUpdate({ status: 'success', note_url: job.note_url, last_step: 'S99 (完了)' });
+                controller.close();
+            } catch (e: any) {
+                sendUpdate({ error: e.message, status: 'failed' });
+                controller.close();
+            }
+        }
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'application/x-ndjson',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        },
+    });
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, email?: string, password?: string }) {
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, email?: string, password?: string }, onUpdate: (step: string) => void) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
-    saveJob(job);
+    const update = (step: string) => {
+        job.last_step = step;
+        saveJob(job);
+        onUpdate(step);
+    };
 
+    update('S00_認証中');
     let browser: any;
     let page: any;
 
-    const captureFailure = async (step: string, err: any) => {
-        console.error(`[Action] Step ${step} failed:`, err.message);
-        job.status = 'failed';
-        job.last_step = step;
-        job.error_code = 'STEP_FAILED';
-        job.error_message = err.message;
-        job.finished_at = new Date().toISOString();
-        saveJob(job);
-        try {
-            if (page) {
-                if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-                await page.screenshot({ path: path.join(LOG_DIR, `${step}_fail.png`) });
-            }
-        } catch (e) { }
-    };
-
     try {
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
-
         if (isServerless) {
             browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`, { timeout: 15000 });
         } else {
@@ -88,20 +101,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         page = await context.newPage();
-
-        job.last_step = 'S01_INIT (進行中)';
-        saveJob(job);
-        // Faster timeout and wait strategy
+        update('S01_INIT (進行中)');
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {
             console.warn("[Action] S01 navigation timed out, but proceeding to check if page loaded.");
         });
-        job.last_step = 'S01 (完了)';
-        saveJob(job);
+        update('S01 (完了)');
 
         if (page.url().includes('/login')) {
             console.log("[Action] Login starting...");
-            job.last_step = 'S02_LOGIN (進行中)';
-            saveJob(job);
+            update('S02_LOGIN (進行中)');
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -128,9 +136,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 throw new Error("Login required but credentials not provided.");
             }
         }
-
-        job.last_step = 'S02 (完了)';
-        saveJob(job);
+        update('S02 (完了)');
 
         // Verify Login Identity (Diagnostic)
         try {
@@ -141,8 +147,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         // Tutorial Bypass (Minimized wait)
-        job.last_step = 'S02b_MODAL (進行中)';
-        saveJob(job);
+        update('S02b_MODAL (進行中)');
         try {
             await page.waitForTimeout(1000);
             const overlaySelectors = ['button:has-text("次へ")', 'button:has-text("閉じる")', '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]'];
@@ -158,8 +163,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             console.warn("[Action] Tutorial bypass error or nothing found.");
         }
 
-        job.last_step = 'S03_解析 (進行中)';
-        saveJob(job);
+        update('S03_解析 (進行中)');
 
         // Wait for editor with slightly reduced timeout
         let editorFound = await page.waitForSelector('textarea[placeholder*="タイトル"], [role="textbox"], h1[contenteditable="true"]', { timeout: 15000 }).catch(() => null);
@@ -214,8 +218,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             throw new Error(`入力欄が見つかりません(S03)。URL: ${page.url()} Dump: ${JSON.stringify(pageDump)}`);
         }
 
-        job.last_step = 'S03 (完了)';
-        saveJob(job);
+        update('S03 (完了)');
 
         const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
             const el = page.locator(selector).first();
@@ -244,20 +247,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.keyboard.press('Backspace');
         };
 
-        job.last_step = 'S04_タイトル記入 (進行中)';
-        saveJob(job);
+        update('S04_タイトル記入 (進行中)');
         await forceInput(bestSelectors.title, content.title);
-        job.last_step = 'S04 (完了)';
-        saveJob(job);
+        update('S04 (完了)');
 
-        job.last_step = 'S05_本文記入 (進行中)';
-        saveJob(job);
+        update('S05_本文記入 (進行中)');
         await forceInput(bestSelectors.body, content.body, true);
-        job.last_step = 'S05 (完了)';
-        saveJob(job);
+        update('S05 (完了)');
 
-        job.last_step = 'S06_保存ボタン (進行中)';
-        saveJob(job);
+        update('S06_保存ボタン (進行中)');
         if (bestSelectors.save) {
             console.log(`[Action] Clicking Save Draft button.`);
             await page.click(bestSelectors.save);
@@ -266,11 +264,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // Fallback for save button if selector was missed
             await page.click('button:has-text("下書き保存")').catch(() => { });
         }
-        job.last_step = 'S06 (完了)';
-        saveJob(job);
+        update('S06 (完了)');
 
-        job.last_step = 'S07_完了待機 (進行中)';
-        saveJob(job);
+        update('S07_完了待機 (進行中)');
         console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
 
         try {
@@ -283,8 +279,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } catch (e) {
             console.warn(`[Action] URL transition timeout. Final URL: ${page.url()}`);
         }
-        job.last_step = 'S07 (完了)';
-        saveJob(job);
+        update('S07 (完了)');
 
         await page.waitForTimeout(3000);
 
@@ -298,15 +293,27 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             throw new Error(`下書きURLの取得に失敗しました。現在のURL: ${finalUrl}`);
         }
 
-        job.last_step = 'S99 (完了)';
-        saveJob(job);
+        update('S99 (完了)');
+        saveJob(job); // Final save after all updates
 
         await browser.close();
         return { status: 'success', job_id: job.job_id, note_url: job.note_url, last_step: job.last_step };
 
     } catch (e: any) {
-        await captureFailure(job.last_step || 'FATAL', e);
+        job.status = 'failed';
+        job.error_code = 'STEP_FAILED';
+        job.error_message = e.message;
+        job.finished_at = new Date().toISOString();
+        saveJob(job); // Save job with error details
+        try {
+            if (page) {
+                if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+                await page.screenshot({ path: path.join(LOG_DIR, `${job.last_step || 'FATAL'}_fail.png`) });
+            }
+        } catch (screenshotError) {
+            console.error("Failed to take screenshot on error:", screenshotError);
+        }
         if (browser) await browser.close();
-        return { status: 'failed', error_message: e.message, last_step: job.last_step };
+        throw e; // Re-throw to be caught by the POST handler
     }
 }
