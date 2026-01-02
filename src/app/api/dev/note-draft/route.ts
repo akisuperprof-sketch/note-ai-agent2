@@ -106,29 +106,60 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             browser = await playwright.launch({ headless: true });
         }
 
+        const deviceProfiles = [
+            { name: 'iPhone', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', w: 390, h: 844 },
+            { name: 'iPad', ua: 'Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', w: 834, h: 1194 },
+            { name: 'Mac', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', w: 1280, h: 1000 }
+        ];
+        const profile = deviceProfiles[Math.floor(Math.random() * 2)]; // Start with Mobile/Tablet
+
         const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            viewport: { width: 390, height: 844 },
-            deviceScaleFactor: 3,
-            isMobile: true,
-            hasTouch: true,
+            userAgent: profile.ua,
+            viewport: { width: profile.w, height: profile.h },
+            deviceScaleFactor: profile.name === 'Mac' ? 1 : 2,
+            isMobile: profile.name !== 'Mac',
+            hasTouch: profile.name !== 'Mac',
             locale: 'ja-JP',
-            timezoneId: 'Asia/Tokyo',
-            extraHTTPHeaders: {
-                'Accept-Language': 'ja-JP,ja;q=0.9'
-            }
+            timezoneId: 'Asia/Tokyo'
         });
 
-        // Stealth: Hide webdriver property and simulate touch environment
+        // Super Stealth Injection
         await context.addInitScript(() => {
+            // Mask WebDriver
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            // Mask Plugins
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            // Mask Chrome
             (window as any).chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja'] });
+            // Mask Languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+            // Mask Permissions
+            const originalQuery = window.navigator.permissions.query;
+            (window.navigator.permissions as any).query = (parameters: any) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
         });
 
         if (fs.existsSync(SESSION_FILE)) {
-            const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
-            await context.addCookies(state.cookies || []);
+            const savedData = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+            // Support both old cookie-only and new full-storage formats
+            if (savedData.cookies) {
+                await context.addCookies(savedData.cookies);
+                if (savedData.origins) {
+                    // Inject local storage if present
+                    await context.addInitScript((data) => {
+                        data.origins.forEach((origin: any) => {
+                            origin.localStorage.forEach((item: any) => {
+                                window.localStorage.setItem(item.name, item.value);
+                            });
+                        });
+                    }, savedData);
+                }
+            } else {
+                await context.addCookies(savedData);
+            }
         }
 
         page = await context.newPage();
@@ -254,26 +285,25 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ 画面が固まっています (Tags:${diag.tags})。解析中...`);
-                // Check for console errors or blocked scripts in diag or page state
-                const errorLog = await page.evaluate(() => {
-                    const scripts = Array.from(document.querySelectorAll('script[src]')).map((s: any) => s.src.substring(0, 40));
-                    return `Scripts found: ${scripts.length}`;
-                });
-                update(`🔍 通信チェック: ${errorLog}`);
+                update(`⏳ 画面が固まっています (${diag.tags})。あらゆる手段を講じます...`);
+
+                // Deep Audit: What is actually in the HTML?
+                const pageContent = await page.evaluate(() => document.documentElement.outerHTML.substring(0, 500));
+                console.log(`[Diagnostic HTML] ${pageContent}`);
 
                 if (i === 1) {
-                    update('🖱️ 画面をタップして刺激を与えます');
-                    await page.mouse.tap(200, 400).catch(() => { });
+                    update('🖱️ 画面全体をタップして起動を促します');
+                    for (let x = 0; x < 3; x++) await page.mouse.tap(100 + x * 100, 300 + x * 100).catch(() => { });
                 }
                 if (i === 2) {
-                    update('🔄 ページを再読み込みして再試行します');
+                    update('🔄 認証を一度破棄して、クリーンな再開を試みます');
+                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
                     await page.reload({ waitUntil: 'load' }).catch(() => { });
                 }
                 if (i === 4) {
-                    update('⚡ 認証をリセットしてアクセスし直します');
-                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-                    await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
+                    update('⚡ 最終突破：デスクトップモードに切り替えて再接近します');
+                    // In a more complex setup we would change the context, but for now we try a direct force redirect
+                    await page.goto('https://editor.note.com/notes/new?force_pc=1', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
                 await page.waitForTimeout(6000);
             }
