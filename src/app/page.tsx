@@ -1222,8 +1222,8 @@ export default function Home() {
           const myJob = Array.isArray(jobsData) ? jobsData.find((j: any) => j.request_id === requestId) : null;
           if (myJob) {
             setPostLogs(prev => {
-              const base = `[STATUS] ${myJob.last_step || 'unknown'}`;
-              if (!prev.find(p => p.text.includes(base))) {
+              const base = `${myJob.last_step || 'unknown'}`;
+              if (!prev.find(p => p.text === base)) {
                 return [...prev, { text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }];
               }
               return prev;
@@ -1265,19 +1265,17 @@ export default function Home() {
       } else {
         const text = await res.text();
         console.error("Non-JSON response received:", text);
-        clearInterval(pollInterval);
         throw new Error(`Server returned non-JSON response (Status: ${res.status})`);
       }
 
-      if (res.status === 200 && data.status === "success") {
-        setPostStatus("success");
-        setPostedArticles(prev => new Set(prev).add(articleId));
-        setPostLogs(prev => [...prev, { text: `[SUCCESS] 下書き保存完了`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+      if (res.status === 200 && (data.status === "success" || data.status === "pending")) {
+        console.log("Job initiated:", data.job_id);
         if (data.note_url) setNotePostConsoleUrl(data.note_url);
       } else {
+        clearInterval(pollInterval);
         setPostStatus("error");
-        const msg = data.error_message || data.error || "詳細不明のエラー";
-        const step = data.last_step ? ` (${data.last_step})` : "";
+        const msg = (data as any).error_message || (data as any).error || "Unknown Error";
+        const step = (data as any).last_step ? ` (${(data as any).last_step})` : "";
         setPostLogs(prev => [...prev, { text: `[ERROR] ${msg}${step}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
       }
     } catch (e: any) {

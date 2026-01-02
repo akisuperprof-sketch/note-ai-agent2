@@ -39,8 +39,14 @@ export async function POST(req: NextRequest) {
 
         saveJob(job);
 
-        const result = await runNoteDraftAction(job, { title, body, email, password });
-        return NextResponse.json(result);
+        // Start the process in the background (Don't await)
+        // Note: In Vercel, the function might be suspended after return unless using waitUntil
+        // but for now, we return immediately to prevent 504 on the client.
+        runNoteDraftAction(job, { title, body, email, password }).catch(err => {
+            console.error("[Background Job Error]:", err);
+        });
+
+        return NextResponse.json({ status: 'pending', job_id: job.job_id });
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
@@ -87,13 +93,15 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
 
-        job.last_step = 'S01_goto_new';
+        job.last_step = 'S01_INIT (進行中)';
         saveJob(job);
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        job.last_step = 'S01 (完了)';
+        saveJob(job);
 
         if (page.url().includes('/login')) {
             console.log("[Action] Login starting...");
-            job.last_step = 'S02_login';
+            job.last_step = 'S02_LOGIN (進行中)';
             saveJob(job);
             if (content.email && content.password) {
                 // Wait for any login input to be present
@@ -127,6 +135,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
+        job.last_step = 'S02 (完了)';
+        saveJob(job);
+
         // Verify Login Identity (Diagnostic)
         try {
             const userName = await page.locator('.nc-header-account-menu__profile-name, [aria-label*="メニュー"]').first().textContent();
@@ -159,7 +170,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             console.warn("[Action] Tutorial bypass error or nothing found.");
         }
 
-        job.last_step = 'S03_find_selectors';
+        job.last_step = 'S03_解析 (進行中)';
         saveJob(job);
 
         // Wait for the editor to stabilize with retry
@@ -209,8 +220,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     inputs: inputs.filter(i => i.rect.width > 0).slice(0, 5)
                 };
             });
-            throw new Error(`記事入力フィールドが見つかりませんでした。URL: ${page.url()} (T:${!!bestSelectors.title}, B:${!!bestSelectors.body}) Diagnostics: ${JSON.stringify(pageDump)}`);
+            throw new Error(`入力欄の特定に失敗しました。S03エラー。`);
         }
+
+        job.last_step = 'S03 (完了)';
+        saveJob(job);
 
         const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
             const el = page.locator(selector).first();
@@ -239,15 +253,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.keyboard.press('Backspace');
         };
 
-        job.last_step = 'S04_input_title';
+        job.last_step = 'S04_タイトル記入 (進行中)';
         saveJob(job);
         await forceInput(bestSelectors.title, content.title);
+        job.last_step = 'S04 (完了)';
+        saveJob(job);
 
-        job.last_step = 'S05_input_body';
+        job.last_step = 'S05_本文記入 (進行中)';
         saveJob(job);
         await forceInput(bestSelectors.body, content.body, true);
+        job.last_step = 'S05 (完了)';
+        saveJob(job);
 
-        job.last_step = 'S06_click_save';
+        job.last_step = 'S06_保存ボタン (進行中)';
         saveJob(job);
         if (bestSelectors.save) {
             console.log(`[Action] Clicking Save Draft button.`);
@@ -257,8 +275,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // Fallback for save button if selector was missed
             await page.click('button:has-text("下書き保存")').catch(() => { });
         }
+        job.last_step = 'S06 (完了)';
+        saveJob(job);
 
-        job.last_step = 'S07_wait_save';
+        job.last_step = 'S07_完了待機 (進行中)';
         saveJob(job);
         console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
 
@@ -272,6 +292,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } catch (e) {
             console.warn(`[Action] URL transition timeout. Final URL: ${page.url()}`);
         }
+        job.last_step = 'S07 (完了)';
+        saveJob(job);
 
         await page.waitForTimeout(3000);
 
@@ -285,7 +307,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             throw new Error(`下書きURLの取得に失敗しました。現在のURL: ${finalUrl}`);
         }
 
-        job.last_step = 'S99_complete';
+        job.last_step = 'S99 (完了)';
         saveJob(job);
 
         await browser.close();
