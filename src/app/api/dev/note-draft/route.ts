@@ -184,44 +184,77 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Patiently poll for elements (Note's editor is heavy)
         let editorFound = false;
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 9; i++) {
             // Broaden wait selector: any contenteditable or textarea might indicate the editor is ready
-            const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror', { timeout: 4000 }).catch(() => null);
+            const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el) {
-                // Confirm it's not a generic input by checking visibility of main areas
+                // Wait an extra second for React to settle
+                await page.waitForTimeout(1000);
                 editorFound = true;
                 break;
             }
-            update(`S03_解析 (試行 ${i + 1}/7)`);
-            if (i === 2) {
-                await page.keyboard.press('Escape');
-                await page.mouse.click(500, 300).catch(() => { });
+            update(`S03_解析 (試行 ${i + 1}/9)`);
+
+            // Interaction to trigger loading
+            if (i === 1) await page.mouse.click(600, 400).catch(() => { });
+            if (i === 3) {
+                update('S03_リロード試行');
+                await page.reload({ waitUntil: 'domcontentloaded' });
+                await page.waitForTimeout(3000);
             }
+            if (i === 5) await page.keyboard.press('Escape');
+            if (i === 7) await page.mouse.dblclick(600, 400).catch(() => { });
         }
 
         const bestSelectors = await page.evaluate(() => {
             const getSelector = (el: Element) => {
                 const tid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
                 if (tid) return `[data-testid="${tid}"]`;
-                if (el.getAttribute("id")) return `#${el.getAttribute("id")}`;
                 return null;
             };
 
-            const titleEl = document.querySelector('textarea[placeholder*="タイトル"], textarea[placeholder*="Title"], h1[contenteditable="true"], [data-testid="note-title"]');
-            const bodyEl = document.querySelector('div.ProseMirror[role="textbox"], .note-editor, [data-editor-type="article"], [aria-label*="本文"], [aria-label*="Body"]');
-            const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('下書き保存') || b.textContent?.includes('Save draft'));
+            // Aggressive search for anything that looks like title/body
+            const titleCandidates = [
+                'textarea[placeholder*="タイトル"]', 'textarea[placeholder*="Title"]',
+                'h1[contenteditable="true"]', '[data-testid="note-title"]',
+                'textarea' // Last resort: the first textarea
+            ];
+            const bodyCandidates = [
+                'div.ProseMirror[role="textbox"]', '.note-editor',
+                '[data-editor-type="article"]', '[aria-label*="本文"]',
+                '[role="textbox"]' // Last resort
+            ];
+
+            let titleEl = null;
+            for (const sel of titleCandidates) {
+                titleEl = document.querySelector(sel);
+                if (titleEl) break;
+            }
+
+            let bodyEl = null;
+            for (const sel of bodyCandidates) {
+                bodyEl = document.querySelector(sel);
+                if (bodyEl) break;
+            }
+
+            const saveBtn = Array.from(document.querySelectorAll('button')).find(b =>
+                b.textContent?.includes('下書き保存') || b.textContent?.includes('Save draft') || b.textContent?.includes('完了')
+            );
 
             return {
                 title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea')) : null,
                 body: bodyEl ? (getSelector(bodyEl) || (bodyEl.classList.contains('ProseMirror') ? 'div.ProseMirror[role="textbox"]' : '.note-editor')) : null,
-                save: saveBtn ? (getSelector(saveBtn) || 'button:has-text("下書き保存")') : null
+                save: saveBtn ? 'button:has-text("下書き保存")' : null
             };
         });
 
         console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
 
         if (!bestSelectors.title || !bestSelectors.body) {
-            throw new Error(`入力欄が見つかりません(S03)。URL: ${page.url().substring(0, 50)}`);
+            const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 100).replace(/\n/g, ' '));
+            // Force session reset on failure to try a clean state next time
+            if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
+            throw new Error(`解析失敗(S03)。画面テキスト: "${bodyText}..." URL: ${page.url().substring(0, 40)}`);
         }
 
         update('S03 (完了)');
