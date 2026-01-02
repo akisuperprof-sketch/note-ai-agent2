@@ -148,6 +148,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             };
         });
 
+        if (!bestSelectors.title || !bestSelectors.body) {
+            throw new Error(`記事入力フィールドが見つかりませんでした (Title: ${!!bestSelectors.title}, Body: ${!!bestSelectors.body})`);
+        }
+
         if (bestSelectors.title) {
             job.last_step = 'S04_input_title';
             saveJob(job);
