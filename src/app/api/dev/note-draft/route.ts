@@ -18,14 +18,24 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
         async start(controller) {
             const sendUpdate = (data: any) => {
-                controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+                try {
+                    controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+                } catch (e) {
+                    console.error("[Stream] Controller closed or error:", e);
+                }
             };
+
+            // Heartbeat to keep connection alive
+            const heartbeat = setInterval(() => {
+                sendUpdate({ type: 'heartbeat', time: Date.now() });
+            }, 8000);
 
             try {
                 const { article_id, title, body, mode, request_id, email, password } = await req.json();
 
                 if (!validateDevMode(mode)) {
                     sendUpdate({ error: "Forbidden" });
+                    clearInterval(heartbeat);
                     controller.close();
                     return;
                 }
@@ -44,21 +54,22 @@ export async function POST(req: NextRequest) {
                     note_url: null,
                     error_code: null,
                     error_message: null,
-                    last_step: 'S00_開始'
+                    last_step: 'S00_認証中'
                 };
 
                 sendUpdate({ status: 'running', last_step: job.last_step });
 
-                // Pass the stream controller to the action to allow real-time logging
                 await runNoteDraftAction(job, { title, body, email, password }, (step) => {
-                    job.last_step = step;
                     sendUpdate({ status: 'running', last_step: step });
                 });
 
                 sendUpdate({ status: 'success', note_url: job.note_url, last_step: 'S99 (完了)' });
+                clearInterval(heartbeat);
                 controller.close();
             } catch (e: any) {
-                sendUpdate({ error: e.message, status: 'failed' });
+                console.error("[Stream Error]:", e);
+                sendUpdate({ error: e.message, status: 'failed', last_step: 'FATAL_ERROR' });
+                clearInterval(heartbeat);
                 controller.close();
             }
         }
@@ -226,24 +237,31 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await el.click();
             await page.waitForTimeout(500);
 
-            // For React-based editors, sometimes simple fill is not enough
+            // Use execCommand as primary for rich text, or direct manipulation as fallback
             await page.evaluate(({ sel, txt, bodyMode }: { sel: string, txt: string, bodyMode: boolean }) => {
                 const element = document.querySelector(sel) as any;
                 if (!element) return;
-                if (bodyMode) {
-                    element.innerHTML = `<p>${txt}</p>`;
-                } else {
-                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-                    if (nativeSetter) nativeSetter.call(element, txt);
-                    else element.value = txt;
+
+                element.focus();
+                // Try execCommand first (better for React/ProseMirror state)
+                try {
+                    document.execCommand('selectAll', false);
+                    document.execCommand('insertText', false, txt);
+                } catch (e) {
+                    if (bodyMode) {
+                        element.innerHTML = `<p>${txt}</p>`;
+                    } else {
+                        element.value = txt;
+                    }
                 }
+
                 element.dispatchEvent(new Event('input', { bubbles: true }));
                 element.dispatchEvent(new Event('change', { bubbles: true }));
             }, { sel: selector, txt: text, bodyMode: isBody });
 
-            // Also use keyboard to trigger auto-save logic
+            // Trigger possible auto-save triggers in React
             await page.keyboard.press('End');
-            await page.keyboard.type(' ', { delay: 10 });
+            await page.keyboard.press('Space');
             await page.keyboard.press('Backspace');
         };
 
