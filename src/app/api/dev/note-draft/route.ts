@@ -15,34 +15,13 @@ const LOG_DIR = isServerless
 
 export async function POST(req: NextRequest) {
     try {
-        const {
-            article_id,
-            title,
-            body,
-            tags,
-            mode,
-            request_id,
-            email,
-            password
-        } = await req.json();
+        const { article_id, title, body, mode, request_id, email, password } = await req.json();
 
-        console.log(`[API] Note Draft Request Received. Mode=${mode}, Env=${isServerless ? 'Production' : 'Local'}`);
-
-        if (!validateDevMode(mode)) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-
-        if (!DEV_SETTINGS.AUTO_POST_ENABLED) {
-            return NextResponse.json({ error: "Auto-post is disabled" }, { status: 503 });
-        }
-
-        const allJobs = getAllJobs();
-        if (allJobs.find(j => j.article_id === article_id && j.status === 'success')) {
-            return NextResponse.json({ status: 'skipped', message: 'Already posted' });
-        }
+        if (!validateDevMode(mode)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        if (!DEV_SETTINGS.AUTO_POST_ENABLED) return NextResponse.json({ error: "Disabled" }, { status: 503 });
 
         const job: NoteJob = {
-            job_id: `job_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            job_id: `job_${Date.now()}`,
             article_id,
             request_id,
             mode: 'development',
@@ -60,18 +39,16 @@ export async function POST(req: NextRequest) {
 
         saveJob(job);
 
-        // 504 Timeout対策: 実行をawaitせずバックグラウンドで走らせたいが、
-        // Vercelはレスポンス後に殺すため、ここではawaitしつつ極限まで高速化する。
-        const result = await runNoteDraftAction(job, { title, body, tags, email, password });
+        // 504回避のため、awaitせずにレスポンスを返したいところですが、
+        // Vercelはレスポンス後に処理を停止するため、極限まで高速化して回します。
+        const result = await runNoteDraftAction(job, { title, body, email, password });
         return NextResponse.json(result);
     } catch (e: any) {
-        console.error(`[API] Fatal Crash:`, e);
-        return NextResponse.json({ error: "Internal Error", status: 'failed' }, { status: 500 });
+        return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], email?: string, password?: string }) {
-    console.log(`[Action] Starting action for ${job.job_id}`);
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, email?: string, password?: string }) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
     saveJob(job);
@@ -79,33 +56,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let browser: any;
     let page: any;
 
-    const captureFailure = async (step: string, err: any) => {
-        console.error(`[Action] Step ${step} failed:`, err.message);
-        job.status = 'failed';
-        job.last_step = step;
-        job.error_code = 'STEP_FAILED';
-        job.error_message = err.message;
-        job.finished_at = new Date().toISOString();
-        saveJob(job);
-        try {
-            if (page) {
-                if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-                await page.screenshot({ path: path.join(LOG_DIR, `${step}_fail.png`) });
-            }
-        } catch (e) { }
-    };
-
     try {
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
-
-        // 1. 接続 (高速化のため CDP優先)
-        if (isServerless) {
-            browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`, { timeout: 15000 });
-        } else {
-            browser = await playwright.launch({ headless: true });
-        }
-
+        browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}`, { timeout: 15000 });
         const context = await browser.newContext();
+
         if (fs.existsSync(SESSION_FILE)) {
             const state = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
             await context.addCookies(state.cookies || []);
@@ -113,51 +68,103 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
 
-        // 2. ページ遷移 (domcontentloadedで時間を稼ぐ)
-        job.last_step = 'S01_goto_new';
+        // 1. エディタへ移動
+        job.last_step = 'S01_goto';
         saveJob(job);
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // 3. ログインチェック
+        // 2. ログイン判定（より柔軟な検索）
         if (page.url().includes('/login')) {
-            console.log("[Action] Session expired, logging in...");
             job.last_step = 'S02_login';
             saveJob(job);
             if (content.email && content.password) {
-                await page.fill('input[type="email"], #email', content.email);
-                await page.fill('input[type="password"]', content.password);
-                await page.click('button[type="submit"]');
+                await page.fill('input[type="email"], input[name="mail"], #email', content.email);
+                await page.fill('input[type="password"], input[name="password"]', content.password);
+                // ログインボタンをテキストで探す
+                const loginBtn = page.locator('button:has-text("ログイン"), button[type="submit"], .p-login__submit').first();
+                await loginBtn.click();
                 await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
 
                 const state = await context.storageState();
                 if (!fs.existsSync(path.dirname(SESSION_FILE))) fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
-
                 await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' });
             } else {
-                throw new Error("Login required but no credentials provided.");
+                throw new Error("Login required.");
             }
         }
 
-        // 4. コンテンツ入力
-        job.last_step = 'S03_filling';
+        // 3. スマート・セレクタ特定 (ユーザー提案のロジックを内蔵)
+        job.last_step = 'S03_find_selectors';
         saveJob(job);
 
-        // エディタのポップアップをEscapeで消す
+        // エディタの初期化を待つ
+        await page.waitForTimeout(5000);
         await page.keyboard.press('Escape');
-        await page.waitForTimeout(1000);
 
-        const titleInput = page.locator('textarea[placeholder*="タイトル"], [placeholder*="記事タイトル"], h1[contenteditable="true"]').first();
-        await titleInput.waitFor({ state: 'visible', timeout: 20000 });
-        await titleInput.fill(content.title);
+        const bestSelectors = await page.evaluate(() => {
+            const candidates: any[] = [];
+            const els = document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']");
 
-        const bodyInput = page.locator('[role="textbox"], .note-common-editor__editable, [placeholder*="書いてみませんか"]').first();
-        await bodyInput.waitFor({ state: 'visible', timeout: 15000 });
-        await bodyInput.click();
-        await page.keyboard.type(content.body);
+            els.forEach(el => {
+                const rect = el.getBoundingClientRect();
+                if (rect.width < 40 || rect.height < 14) return;
 
-        // 念のため自動保存を待つ
-        await page.waitForTimeout(3000);
+                const ph = (el.getAttribute("placeholder") || "").toLowerCase();
+                const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+                const role = el.getAttribute("role") || "";
+                const ce = el.getAttribute("contenteditable") || "";
+                const tag = el.tagName;
+
+                // タイトルスコア
+                let sTitle = 0;
+                if (ph.includes("タイトル") || ph.includes("title")) sTitle += 10;
+                if (aria.includes("タイトル") || aria.includes("title")) sTitle += 10;
+                if (tag === "TEXTAREA" && rect.top < 400) sTitle += 5;
+                if (tag === "INPUT") sTitle += 2;
+
+                // 本文スコア
+                let sBody = 0;
+                if (ce === "true" || role === "textbox") sBody += 10;
+                if (ph.includes("書いてみませんか") || ph.includes("本文") || ph.includes("content")) sBody += 10;
+                if (rect.height > 100) sBody += 5;
+
+                // セレクタ生成 (testid優先)
+                let selector = el.tagName.toLowerCase();
+                if (el.getAttribute("data-testid")) selector = `[data-testid="${el.getAttribute("data-testid")}"]`;
+                else if (el.getAttribute("name")) selector = `[name="${el.getAttribute("name")}"]`;
+                else if (el.getAttribute("id")) selector = `#${el.getAttribute("id")}`;
+                else if (el.getAttribute("placeholder")) selector = `${el.tagName.toLowerCase()}[placeholder="${el.getAttribute("placeholder")}"]`;
+
+                candidates.push({ selector, sTitle, sBody, tag });
+            });
+
+            return {
+                title: candidates.sort((a, b) => b.sTitle - a.sTitle)[0]?.selector,
+                body: candidates.sort((a, b) => b.sBody - a.sBody)[0]?.selector
+            };
+        });
+
+        console.log(`[SmartSelector] Picked Title: ${bestSelectors.title}, Body: ${bestSelectors.body}`);
+
+        // 4. 入力
+        if (bestSelectors.title) {
+            job.last_step = 'S04_input_title';
+            saveJob(job);
+            const t = page.locator(bestSelectors.title).first();
+            await t.click();
+            await t.fill(content.title);
+        }
+
+        if (bestSelectors.body) {
+            job.last_step = 'S05_input_body';
+            saveJob(job);
+            const b = page.locator(bestSelectors.body).first();
+            await b.click();
+            await page.keyboard.type(content.body);
+        }
+
+        await page.waitForTimeout(3000); // 保存待ち
 
         job.status = 'success';
         job.finished_at = new Date().toISOString();
@@ -169,12 +176,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         return { status: 'success', job_id: job.job_id, note_url: job.note_url };
 
     } catch (e: any) {
-        await captureFailure(job.last_step || 'FATAL', e);
         if (browser) await browser.close();
-        return {
-            status: 'failed',
-            error_message: e.message,
-            last_step: job.last_step
-        };
+        job.status = 'failed';
+        job.error_message = e.message;
+        saveJob(job);
+        return { status: 'failed', error_message: e.message, last_step: job.last_step };
     }
 }
