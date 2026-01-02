@@ -1112,8 +1112,8 @@ export default function Home() {
   const [notePassword, setNotePassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
-  // Experimental Features (Renamed from isDevMode)
-  const [isTitleFabMode, setIsTitleFabMode] = useState(false);
+  // Experimental Features (Title Burn-in defaults to true for better UX)
+  const [isTitleFabMode, setIsTitleFabMode] = useState(true);
 
   // No longer auto-scrolling to bottom since newest is on top
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -1163,14 +1163,16 @@ export default function Home() {
   };
 
   // Helper: Canvas Image Composition (Client-side)
-  const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
+  // Helper: Canvas Image Composition (Client-side)
+  // Returns DataURL of the merged image
+  const getMergedImageDataUrl = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline'): Promise<string | null> => {
     try {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) return null;
 
       const img = new Image();
-      img.crossOrigin = "anonymous"; // Important for CORS if images are from external CDN
+      img.crossOrigin = "anonymous";
       img.src = imageUrl;
 
       await new Promise((resolve, reject) => {
@@ -1178,93 +1180,80 @@ export default function Home() {
         img.onerror = reject;
       });
 
-      // Set resolution (1920x1080 usually)
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-
-      // Draw original image
       ctx.drawImage(img, 0, 0);
 
       if (type === 'eyecatch') {
-        // Eyecatch Style: Bold Title Overlay
-        if (inputs?.showEyecatchTitle !== false) {
-          // Gradient Background at bottom (Bottom 1/3)
-          const grad = ctx.createLinearGradient(0, canvas.height * 0.66, 0, canvas.height);
-          grad.addColorStop(0, "rgba(0,0,0,0)");
-          grad.addColorStop(1, "rgba(0,0,0,0.9)");
-          ctx.fillStyle = grad;
-          ctx.fillRect(0, canvas.height * 0.66, canvas.width, canvas.height * 0.34);
+        // Eyecatch Style: Bold Title Overlay (Bottom 1/3)
+        // Background Gradient
+        const grad = ctx.createLinearGradient(0, canvas.height * 0.66, 0, canvas.height);
+        grad.addColorStop(0, "rgba(0,0,0,0)");
+        grad.addColorStop(1, "rgba(0,0,0,0.92)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, canvas.height * 0.66, canvas.width, canvas.height * 0.34);
 
-          // Text Settings (Standard Responsive Size)
-          const fontSize = Math.floor(canvas.width * 0.05); // Dynamic font size (~5-6% of width)
-          ctx.font = `bold ${fontSize}px 'Hiragino Mincho ProN', 'Yu Mincho', serif`;
-          ctx.fillStyle = "#ffffff";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.shadowColor = "rgba(0,0,0,0.8)";
-          ctx.shadowBlur = 20;
-          ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = 4;
+        // Text Settings
+        const fontSize = Math.floor(canvas.width * 0.05);
+        ctx.font = `bold ${fontSize}px 'Hiragino Mincho ProN', 'Yu Mincho', serif`;
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.shadowColor = "rgba(0,0,0,0.8)";
+        ctx.shadowBlur = 15;
 
-          // Word Wrap Logic
-          const maxWidth = canvas.width * 0.9;
-          const words = title.split('');
-          let line = '';
-          let lines = [];
-
-          for (let n = 0; n < words.length; n++) {
-            const testLine = line + words[n];
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > maxWidth && n > 0) {
-              lines.push(line);
-              line = words[n];
-            } else {
-              line = testLine;
-            }
-          }
-          lines.push(line);
-
-          // Draw Text
-          let lineHeight = 100;
-          let startY = canvas.height - 100 - ((lines.length - 1) * lineHeight);
-
-          lines.forEach((l, i) => {
-            ctx.fillText(l, canvas.width / 2, startY + (i * lineHeight));
-          });
+        // Word Wrap
+        const maxWidth = canvas.width * 0.9;
+        const words = title.split('');
+        let line = '';
+        let lines = [];
+        for (let n = 0; n < words.length; n++) {
+          const testLine = line + words[n];
+          if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+            lines.push(line);
+            line = words[n];
+          } else { line = testLine; }
         }
+        lines.push(line);
+
+        // Draw
+        let lineHeight = Math.floor(fontSize * 1.2);
+        let startY = canvas.height - (canvas.height * 0.05) - ((lines.length - 1) * lineHeight);
+        lines.forEach((l, i) => {
+          ctx.fillText(l, canvas.width / 2, startY + (i * lineHeight));
+        });
       } else {
-        // Inline Style: Orange Bar at Bottom
+        // Inline Image Logic
         const barHeight = canvas.height * 0.15;
         const startY = canvas.height - barHeight;
-
-        // Draw Bar
-        ctx.fillStyle = "rgba(67, 20, 7, 0.9)"; // Orange-950 like
+        ctx.fillStyle = "rgba(67, 20, 7, 0.9)";
         ctx.fillRect(0, startY, canvas.width, barHeight);
-
-        // Top Border
-        ctx.fillStyle = "rgba(249, 115, 22, 0.4)"; // Orange-500 like
+        ctx.fillStyle = "rgba(249, 115, 22, 0.4)";
         ctx.fillRect(0, startY, canvas.width, 4);
-
-        // Text
         ctx.font = "bold 60px sans-serif";
-        ctx.fillStyle = "#ffedd5"; // Orange-100 like
+        ctx.fillStyle = "#ffedd5";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.shadowColor = "transparent";
-
         ctx.fillText(title, canvas.width / 2, startY + (barHeight / 2));
       }
 
-      // Download
-      const link = document.createElement('a');
-      link.download = type === 'eyecatch' ? 'eyecatch_merged.png' : `${title}_merged.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-
+      return canvas.toDataURL('image/png');
     } catch (e) {
-      console.error("Merge failed", e);
-      alert("画像の合成保存に失敗しました。通常保存を試してください。");
+      console.error("Merge logic failed", e);
+      return null;
     }
+  };
+
+  const saveMergedImage = async (imageUrl: string, title: string, type: 'eyecatch' | 'inline') => {
+    const dataUrl = await getMergedImageDataUrl(imageUrl, title, type);
+    if (!dataUrl) {
+      alert("画像の合成保存に失敗しました。通常保存を試してください。");
+      return;
+    }
+    const link = document.createElement('a');
+    link.download = type === 'eyecatch' ? 'eyecatch_merged.png' : `${title}_merged.png`;
+    link.href = dataUrl;
+    link.click();
   };
 
 
@@ -1628,8 +1617,14 @@ export default function Home() {
           });
           const imgData = await imgRes.json();
           if (imgRes.ok && imgData.imageUrl) {
-            finalImgUrl = imgData.imageUrl;
-            setGeneratedImage(imgData.imageUrl);
+            let finalImg = imgData.imageUrl;
+            if (isTitleFabMode) {
+              await addLog("タイトルを画像に焼き込んでいます...", 500);
+              const merged = await getMergedImageDataUrl(imgData.imageUrl, extractedTitle, 'eyecatch');
+              if (merged) finalImg = merged;
+            }
+            finalImgUrl = finalImg;
+            setGeneratedImage(finalImg);
             setEyecatchError(null);
             if (imgData.generatedPrompt) setImagePrompt(imgData.generatedPrompt);
             if (imgData.model) setImageModel(imgData.model);
@@ -1812,7 +1807,12 @@ export default function Home() {
       });
       const imgData = await imgRes.json();
       if (imgRes.ok && imgData.imageUrl) {
-        setGeneratedImage(imgData.imageUrl);
+        let finalImg = imgData.imageUrl;
+        if (isTitleFabMode) {
+          const merged = await getMergedImageDataUrl(imgData.imageUrl, displayTitle, 'eyecatch');
+          if (merged) finalImg = merged;
+        }
+        setGeneratedImage(finalImg);
         if (imgData.model) setImageModel(imgData.model);
       } else {
         setEyecatchError(imgData.error || "再試行に失敗しました");
@@ -2165,7 +2165,7 @@ export default function Home() {
                       <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
                         <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                           <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                          {inputs?.showEyecatchTitle !== false && (
+                          {inputs?.showEyecatchTitle !== false && !isTitleFabMode && (
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center group">
                               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                 <button onClick={handleRetryEyecatch} className="p-2 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm transition-all" title="この画像を再作成">
@@ -2175,6 +2175,14 @@ export default function Home() {
                               <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
                                 {displayTitle}
                               </h1>
+                            </div>
+                          )}
+                          {/* If burn-in is ON, only show retry button to keep UI clean */}
+                          {isTitleFabMode && (
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                              <button onClick={handleRetryEyecatch} className="p-2 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm transition-all" title="この画像を再作成">
+                                <RotateCcw size={18} />
+                              </button>
                             </div>
                           )}
                         </div>
