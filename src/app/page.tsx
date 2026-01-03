@@ -1418,10 +1418,33 @@ export default function Home() {
     if (savedPass) setNotePassword(savedPass);
   }, []);
 
+  const [devSettings, setDevSettings] = useState<any>(null);
+
   useEffect(() => {
-    if (noteEmail) localStorage.setItem("panda_note_email", noteEmail);
-    if (notePassword) localStorage.setItem("panda_note_pass", notePassword);
-  }, [noteEmail, notePassword]);
+    if (appMode === "development") {
+      fetch(`/api/dev/settings?mode=development`)
+        .then(res => res.json())
+        .then(data => setDevSettings(data))
+        .catch(err => console.error("Global settings fetch failed", err));
+    }
+  }, [appMode]);
+
+  const toggleEmergencyStop = async () => {
+    if (!devSettings) return;
+    const nextState = !devSettings.AUTO_POST_ENABLED;
+    const res = await fetch("/api/dev/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "development",
+        settings: { AUTO_POST_ENABLED: nextState }
+      })
+    });
+    if (res.ok) {
+      setDevSettings(await res.json());
+      alert(`Emergency Stop: ${nextState ? 'OFF (Enabled)' : 'ON (Disabled)'}`);
+    }
+  };
 
   const saveToHistory = (item: Omit<HistoryItem, "id" | "timestamp">) => {
     const newItem: HistoryItem = {
@@ -1858,9 +1881,12 @@ export default function Home() {
 
             {/* Mode Warning Banner */}
             {appMode === "development" && (
-              <div className="max-w-md mx-auto mb-6 bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3 flex items-center justify-center gap-2 animate-pulse">
-                <AlertTriangle size={16} className="text-yellow-500" />
-                <span className="text-yellow-500 font-bold text-xs">開発モード中：自動投稿検証が有効です</span>
+              <div className="max-w-md mx-auto mb-6 bg-red-500/10 border border-red-500/40 rounded-2xl p-4 flex flex-col items-center gap-2 animate-pulse shadow-lg shadow-red-500/10">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle size={20} className="text-red-500" />
+                  <span className="text-red-400 font-black text-sm uppercase tracking-widest">Development Mode 2 ACTIVE</span>
+                </div>
+                <p className="text-[10px] text-red-300/60 font-medium">注意：Playwrightによる「リアル実投稿」が許可されています</p>
               </div>
             )}
 
@@ -1964,145 +1990,177 @@ export default function Home() {
             <Copy size={18} /> 完成原稿をコピー！
           </button>
 
-          {/* Dev Mode: Note Draft Post Button & History */}
+          {/* Dev Mode 2: Enhanced Management UI */}
           {appMode === "development" && (
-            <div className="border border-dashed border-yellow-500/30 bg-yellow-500/5 rounded-2xl p-4 space-y-4">
-              <div className="flex items-center justify-between border-b border-yellow-500/20 pb-2">
-                <div className="flex items-center gap-2 text-yellow-500 font-bold text-sm">
-                  <AlertTriangle size={14} />
-                  <span>Note自動投稿 (開発モード)</span>
+            <div className="space-y-6">
+              <div className="glass-card bg-neutral-900/40 border border-white/5 rounded-[32px] p-8 space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-orange-500/10 p-3 rounded-2xl">
+                      <Zap size={24} className="text-orange-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-white">Advanced Post Protocol v2.0</h3>
+                      <p className="text-xs text-white/40 font-mono tracking-widest">STATUS: SYSTEM_READY // AUTH: REQUIRED</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {devSettings && (
+                      <button
+                        onClick={toggleEmergencyStop}
+                        className={cn(
+                          "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all",
+                          devSettings.AUTO_POST_ENABLED
+                            ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-red-500/20 hover:border-red-500/30 hover:text-red-400"
+                            : "bg-red-500/40 border-red-500/60 text-white animate-pulse"
+                        )}
+                      >
+                        {devSettings.AUTO_POST_ENABLED ? "System Active (Click to Stop)" : "EMERGENCY STOPPED"}
+                      </button>
+                    )}
+                    <div className="px-4 py-1.5 bg-neutral-800 border border-white/5 rounded-full text-[10px] text-white/40 font-black uppercase tracking-widest">
+                      Protocol v2.0
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-yellow-500/60 font-mono">mode: development</div>
-              </div>
 
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-4">
-                  {/* Always show console if not idle to track history/errors */}
-                  {postStatus !== "idle" && <NotePostConsole />}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Magic Injector (The Reliable One) */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles size={16} className="text-orange-400" />
+                      <h4 className="text-sm font-black text-white uppercase">Development Mode 1: Semi-Auto</h4>
+                    </div>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      ブラウザ上で動作するJavaScriptを生成します。ボット検知を100%回避する最も安全な方法です。
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          const script = generateMagicCode();
+                          navigator.clipboard.writeText(script);
+                          alert("✨ Code Copied!");
+                        }}
+                        className="py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-white transition-all scale-active"
+                      >
+                        COPY CODE
+                      </button>
+                      <button
+                        onClick={() => {
+                          const script = generateMagicCode();
+                          const bml = `javascript:${encodeURIComponent(script)}`;
+                          navigator.clipboard.writeText(bml);
+                          alert("🔖 Bookmarklet Copied!");
+                        }}
+                        className="py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-[10px] font-black text-white transition-all shadow-lg scale-active"
+                      >
+                        BOOKMARKLET
+                      </button>
+                    </div>
+                  </div>
 
-                  {/* Only show Note Post / Semi-Auto UI if article is generated AND not currently posting */}
-                  {status === "done" && postStatus !== "posting" && (
-                    <>
-                      {/* Semi-Auto Magic Injector (Improved) */}
-                      <div className="space-y-4 bg-orange-500/10 p-5 rounded-3xl border border-orange-500/30 shadow-2xl">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-orange-500 p-2 rounded-xl text-white shadow-lg">
-                            <Zap size={20} />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-black text-white leading-none mb-1 uppercase tracking-wider">Semi-Auto Magic Injector</h3>
-                            <p className="text-[10px] text-orange-200/60 font-medium">スマホ・PC両対応。もっとも確かな方法です。</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <button
-                            onClick={() => window.open('https://note.com/notes/new', '_blank')}
-                            className="flex flex-col items-center justify-center gap-2 py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-bold text-white transition-all border border-white/10 group"
-                          >
-                            <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mb-1 group-hover:bg-orange-500 transition-colors">1</span>
-                            エディタを開く
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const script = generateMagicCode();
-                              navigator.clipboard.writeText(script);
-                              alert("✨ 魔法のコード（コンソール用）をコピーしました！");
-                            }}
-                            className="flex flex-col items-center justify-center gap-2 py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-bold text-white transition-all border border-white/10 group"
-                          >
-                            <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center mb-1 group-hover:bg-orange-500 transition-colors">2</span>
-                            コードをコピー
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const script = generateMagicCode();
-                              const bookmarklet = `javascript:${encodeURIComponent(script)}`;
-                              navigator.clipboard.writeText(bookmarklet);
-                              alert("🔖 ブックマークレットをコピーしました！\n\n【おすすめ】ブラウザの「お気に入り」として登録しておけば、次回からこのボタンすら不要で1クリック入力が可能です。");
-                            }}
-                            className="flex flex-col items-center justify-center gap-2 py-4 bg-orange-500 hover:bg-orange-600 rounded-2xl text-[10px] font-black text-white transition-all shadow-xl group"
-                          >
-                            <span className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:bg-white group-hover:text-orange-500 transition-colors">3</span>
-                            爆速ブックマーク
-                          </button>
-                        </div>
-
-                        <div className="p-4 bg-black/40 rounded-2xl border border-white/5 space-y-3">
-                          <div className="text-[9px] font-bold text-white/40 uppercase tracking-widest">スマホの方へ</div>
-                          <p className="text-[10px] text-white/70 leading-relaxed italic">
-                            「画面下のボタン」でタイトルと本文を順番にコピーして、noteの画面に貼り付けるのが一番スムーズです！
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="relative py-2">
-                        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/10"></span></div>
-                        <div className="relative flex justify-center text-[9px] uppercase font-black text-white/20 bg-[#0A0A0A] px-4 tracking-widest">OR (Experimental Full-Auto)</div>
-                      </div>
-
-                      {/* Login Credentials Inputs */}
-                      <div className="space-y-2 bg-yellow-500/5 p-3 rounded-xl border border-yellow-500/10 opacity-60 hover:opacity-100 transition-opacity">
-                        <div className="text-[9px] font-bold text-yellow-500/60 uppercase">Full-Auto Credentials (Experimental)</div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          <div className="relative">
-                            <input
-                              type="email"
-                              placeholder="Email"
-                              value={noteEmail}
-                              onChange={e => setNoteEmail(e.target.value)}
-                              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50"
-                            />
-                          </div>
-                          <div className="relative flex items-center">
-                            <input
-                              type={showPass ? "text" : "password"}
-                              placeholder="Password"
-                              value={notePassword}
-                              onChange={e => setNotePassword(e.target.value)}
-                              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-yellow-500/50 pr-8"
-                            />
-                            <button
-                              onClick={() => setShowPass(!showPass)}
-                              className="absolute right-2 text-white/40 hover:text-white transition-colors"
-                            >
-                              {showPass ? <Eye size={12} /> : <Eye size={12} className="opacity-50" />}
-                            </button>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setAppMode("development");
-                            handleDraftPost(true); // Instant Start Debug Mode
-                          }}
-                          className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95"
-                        >
-                          開発モードで即時テスト開始
+                  {/* Playwright Headless (The Advanced One) */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Terminal size={16} className="text-purple-400" />
+                      <h4 className="text-sm font-black text-white uppercase">Development Mode 2: Full-Auto</h4>
+                    </div>
+                    <div className="space-y-2">
+                      <input
+                        type="email"
+                        placeholder="Note ID (Email)"
+                        value={noteEmail}
+                        onChange={e => setNoteEmail(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-orange-500/50"
+                      />
+                      <div className="relative">
+                        <input
+                          type={showPass ? "text" : "password"}
+                          placeholder="Password"
+                          value={notePassword}
+                          onChange={e => setNotePassword(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-orange-500/50 pr-10"
+                        />
+                        <button onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white">
+                          {showPass ? <Eye size={14} /> : <Eye size={14} className="opacity-40" />}
                         </button>
                       </div>
+                    </div>
+                    <button
+                      onClick={() => handleDraftPost(false)}
+                      className="w-full py-4 bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 rounded-2xl text-xs font-black text-white transition-all shadow-xl shadow-orange-500/10 scale-active"
+                    >
+                      EXECUTE AUTOMATION
+                    </button>
+                  </div>
+                </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleDraftPost(false)}
-                          className="py-4 rounded-2xl border-2 border-orange-500 text-orange-500 font-black flex items-center justify-center gap-3 hover:bg-orange-500 hover:text-white transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-500/10"
-                        >
-                          <Send size={18} /> 本番投稿
-                        </button>
-                        <button
-                          onClick={() => handleDraftPost(true)}
-                          className="py-4 rounded-2xl border-2 border-dashed border-white/20 text-white/40 font-bold flex items-center justify-center gap-3 hover:border-white/40 hover:text-white transition-all text-sm uppercase tracking-widest"
-                        >
-                          <Pen size={16} /> ダミー投稿テスト
-                        </button>
-                      </div>
-                    </>
-                  )}
+                {/* Job Console Area */}
+                <NotePostConsole />
+
+                <div className="pt-6 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <BarChart3 size={18} className="text-white/40" />
+                      <h4 className="text-sm font-black text-white uppercase tracking-widest">Recent Activity Logs</h4>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const res = await fetch("/api/dev/note-jobs?mode=development");
+                        if (res.ok) setJobs(await res.json());
+                      }}
+                      className="text-[10px] font-bold text-orange-400 hover:text-orange-300 flex items-center gap-1 transition-colors"
+                    >
+                      <RotateCcw size={12} /> REFRESH LIST
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-white/5 bg-black/20">
+                    <table className="w-full text-left text-[10px] font-mono">
+                      <thead>
+                        <tr className="bg-white/5 text-white/40 uppercase tracking-widest border-b border-white/5">
+                          <th className="px-4 py-3">Timestamp</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Last Step</th>
+                          <th className="px-4 py-3">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {jobs.length === 0 ? (
+                          <tr><td colSpan={4} className="px-4 py-8 text-center text-white/20 italic">No job logs found in current mode.</td></tr>
+                        ) : (
+                          jobs.slice(0, 10).map((job) => (
+                            <tr key={job.job_id} className="hover:bg-white/5 transition-colors group">
+                              <td className="px-4 py-3 text-white/40">{new Date(job.created_at).toLocaleTimeString()}</td>
+                              <td className="px-4 py-3">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full font-bold uppercase",
+                                  job.status === 'success' ? "bg-green-500/20 text-green-400" :
+                                    job.status === 'failed' ? "bg-red-500/20 text-red-400" : "bg-orange-500/20 text-orange-400 animate-pulse"
+                                )}>
+                                  {job.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-white/60 truncate max-w-[150px]">{job.last_step}</td>
+                              <td className="px-4 py-3">
+                                {job.note_url ? (
+                                  <a href={job.note_url} target="_blank" className="text-blue-400 hover:underline flex items-center gap-1">
+                                    OPEN <ExternalLink size={10} />
+                                  </a>
+                                ) : job.status === 'failed' ? (
+                                  <span className="text-white/20">--</span>
+                                ) : (
+                                  <span className="text-white/20 italic">Pending...</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
-
-              {/* Job History removed as redundancy; processing logs provide real-time status */}
             </div>
           )}
 

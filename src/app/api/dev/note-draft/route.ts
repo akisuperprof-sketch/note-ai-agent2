@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { chromium as playwright } from "playwright-core";
 import fs from "fs";
 import path from "path";
-import { DEV_SETTINGS, validateDevMode } from "@/lib/server/flags";
+import { getDevSettings, validateDevMode } from "@/lib/server/flags";
 import { getAllJobs, saveJob, NoteJob } from "@/lib/server/jobs";
 
 const isServerless = !!(process.env.VERCEL || process.env.AWS_EXECUTION_ENV || process.env.NODE_ENV === 'production');
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
             }, 8000);
 
             try {
-                const { article_id, title, body, mode, request_id, email, password } = await req.json();
+                const { article_id, title, body, mode, request_id, email, password, tags, scheduled_at } = await req.json();
 
                 if (!validateDevMode(mode)) {
                     sendUpdate({ error: "Forbidden" });
@@ -54,12 +54,14 @@ export async function POST(req: NextRequest) {
                     note_url: null,
                     error_code: null,
                     error_message: null,
-                    last_step: 'S00_認証中'
+                    last_step: 'S00: Precheck (安全性確認)',
+                    scheduled_at: scheduled_at || null,
+                    tags: tags || []
                 };
 
                 sendUpdate({ status: 'running', last_step: job.last_step });
 
-                await runNoteDraftAction(job, { title, body, email, password }, (step) => {
+                await runNoteDraftAction(job, { title, body, email, password, tags, scheduled_at }, (step) => {
                     sendUpdate({ status: 'running', last_step: step });
                 });
 
@@ -84,23 +86,33 @@ export async function POST(req: NextRequest) {
     });
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, email?: string, password?: string }, onUpdate: (step: string) => void) {
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string }, onUpdate: (step: string) => void) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
-    const update = (step: string) => {
-        job.last_step = step;
+    job.tags = content.tags || [];
+    job.scheduled_at = content.scheduled_at || null;
+
+    const update = (stepId: string, stepName: string) => {
+        const fullStep = `${stepId}: ${stepName}`;
+        job.last_step = fullStep;
         saveJob(job);
-        onUpdate(step);
+        onUpdate(fullStep);
     };
 
-    update('S00_認証中');
+    update('S00', 'Precheck (安全性確認)');
+    // Check global kill switch
+    const settings = getDevSettings();
+    if (!settings.AUTO_POST_ENABLED) {
+        throw new Error("AUTO_POST_ENABLED is globally FALSE (Emergency Stop)");
+    }
+
     let browser: any;
     let page: any;
 
     try {
+        update('S01', 'Load Session / Browser Init');
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
         if (isServerless) {
-            // Enhanced connection with stealth and shm-size flags
             browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 15000 });
         } else {
             browser = await playwright.launch({ headless: true });
@@ -108,10 +120,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         const deviceProfiles = [
             { name: 'iPhone', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', w: 390, h: 844 },
-            { name: 'iPad', ua: 'Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', w: 834, h: 1194 },
             { name: 'Mac', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', w: 1280, h: 1000 }
         ];
-        const profile = deviceProfiles[Math.floor(Math.random() * 2)]; // Start with Mobile/Tablet
+        const profile = deviceProfiles[Math.floor(Math.random() * deviceProfiles.length)];
 
         const context = await browser.newContext({
             userAgent: profile.ua,
@@ -125,20 +136,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Super Stealth Injection
         await context.addInitScript(() => {
-            // Mask WebDriver
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            // Mask Plugins
             Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            // Kill Service Workers (often cause freezes in headless)
             if (navigator.serviceWorker) {
                 navigator.serviceWorker.getRegistrations().then(regs => {
                     for (let reg of regs) reg.unregister();
                 });
             }
-            // Mask Chrome
-            (window as any).chrome = { runtime: {} };
-            // Mask Languages
-            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
         });
 
         if (fs.existsSync(SESSION_FILE)) {
@@ -175,17 +179,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         });
 
         await page.setDefaultTimeout(20000);
-        update('🚀 モバイルモードでサイトへ向かっています...');
+        update('S02', 'Navigating to note.com');
         // Human Observational Wait: Sit still after initial navigation
         await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
         await page.waitForTimeout(8000); // 8s wait to look like a human reading the home page
 
         // Check if already on editor or need to navigate
         if (page.url().includes('/notes/new')) {
-            update('✅ エディタに直通しました。同期を待っています... (5秒待機)');
+            update('S02', 'Confirmed: Editor direct access');
             await page.waitForTimeout(5000);
         } else if (page.url().includes('/login')) {
-            update('🔑 ログインが必要なため、準備しています...');
+            update('S03', 'Authentication required');
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -196,7 +200,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 try {
                     await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 15000, waitUntil: 'load' });
-                    update('🔓 ログイン完了。環境の安定を待っています... (8秒待機)');
+                    update('S03', 'Login success. Stabilizing session...');
                     await page.waitForTimeout(8000);
                 } catch (e) {
                     const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
@@ -209,7 +213,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
 
                 // Visit main site to stabilize
-                update('☕ マイページを読み込んでいます...');
+                update('S03', 'Loading My Page for stability');
                 await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
                 await page.waitForTimeout(5000);
             } else {
@@ -219,7 +223,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Human Action: Attempt to click "Post" button if not in editor
         if (!page.url().includes('editor.note.com')) {
-            update('🖱️ 「投稿」ボタンを探してクリックします...');
+            update('S04', 'Locating Post button');
             // Wait for header elements to really appear
             await page.waitForSelector('.nc-header', { timeout: 5000 }).catch(() => { });
             const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button, .nc-header__post-nav-item').first();
@@ -235,17 +239,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
             } else {
-                update('⚡ 直接エディタへ移動します');
+                update('S04', 'Direct navigation to editor');
                 await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
             }
             // CRITICAL: Wait for editor application to boot up
-            update('⌛ エディタが起動するのを静かに待っています... (10秒待機)');
+            update('S04', 'Waiting for Editor SPA boot');
             await page.waitForTimeout(10000);
         }
-        update('✅ 編集画面への到達を確認しました');
+        update('S05', 'Editor confirmed');
 
         // Tutorial Bypass (Aggressive)
-        update('🧹 邪魔な案内を片付けています...');
+        update('S05', 'Bypassing tutorials/overlays');
         try {
             await page.waitForTimeout(1000);
             const overlaySelectors = [
@@ -266,7 +270,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
-        update('🔍 記事を書き込む準備を整えています...');
+        update('S05', 'Analyzing editor state');
 
         // Wait for Note's heavy SPA to settle
         try {
@@ -284,24 +288,24 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }));
 
             if (diag.tags < 50 && i > 0) {
-                update(`⏳ 画面が固まっています (${diag.tags})。タイトル: "${diag.title || '空'}"`);
+                update('S05', `Editor frozen? (Tags: ${diag.tags})`);
 
                 // Deep Audit: What is actually in the HTML?
                 const pageContent = await page.evaluate(() => document.documentElement.outerHTML.substring(0, 500));
                 console.log(`[Diagnostic HTML] ${pageContent}`);
 
                 if (i === 1) {
-                    update('🖱️ 画面を多角的にクリックして刺激を与えます');
+                    update('S05', 'Injecting click stimuli');
                     for (let pt of [{ x: 200, y: 400 }, { x: 400, y: 200 }, { x: 100, y: 100 }]) {
                         await (page.touchscreen ? page.touchscreen.tap(pt.x, pt.y) : page.mouse.click(pt.x, pt.y)).catch(() => { });
                     }
                 }
                 if (i === 2) {
-                    update('🔄 意識的にページを強制更新します');
+                    update('S05', 'Force reloading page');
                     await page.reload({ waitUntil: 'networkidle' }).catch(() => { });
                 }
                 if (i === 4) {
-                    update('⚡ 最終手段：ログイン情報をリセットして再挑戦します');
+                    update('S05', 'Resetting session and retrying');
                     if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
                     await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
                 }
@@ -310,12 +314,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
             if (el && await el.isVisible()) {
-                update('👁️ 編集画面の内容を確認しています... (5秒待機)');
+                update('S05', 'Analyzing Editor responsiveness');
                 await page.waitForTimeout(5000); // Observational wait: looking at the screen after load
                 editorFound = true;
                 break;
             }
-            update(`👀 編集画面が開くのを待っています... (${i + 1}/6回目)`);
+            update('S05', `Waiting for Editor mount (${i + 1}/6)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
             if (i === 3) await page.keyboard.press('Escape');
@@ -372,7 +376,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             throw new Error(`解析失敗(S03)。状況: ${JSON.stringify(diag)} URL: ${page.url().substring(0, 40)}`);
         }
 
-        update('S03 (完了)');
+        update('S06', 'Editor Analysis Success');
 
         const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
             const el = page.locator(selector).first();
@@ -384,7 +388,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // For Vercel, we can't do char-by-char for long text, but we can do small chunks.
             const chunks = isBody ? text.match(/[\s\S]{1,150}/g) || [text] : text.match(/[\s\S]{1,20}/g) || [text];
 
-            update(`✍️ ${isBody ? '本文' : 'タイトル'}を丁寧に記入中...`);
+            update(isBody ? 'S08' : 'S07', `${isBody ? 'Body' : 'Title'} Input Processing...`);
 
             for (const chunk of chunks) {
                 await page.evaluate(({ sel, txt }: { sel: string, txt: string }) => {
@@ -412,23 +416,23 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 // Extra pause at paragraph ends (Human checking the progress)
                 if (chunk.includes('\n')) {
-                    update('👀 打ち間違いがないか確認しています...');
+                    update(isBody ? 'S08' : 'S07', 'Proofreading progress...');
                     await page.waitForTimeout(1200 + Math.random() * 800);
                 }
             }
         };
 
-        update('✍️ タイトルを入力しています...');
+        update('S07', 'Typing Title...');
         await page.waitForTimeout(2000); // Pre-typing pause
         await forceInput(bestSelectors.title, content.title);
         await page.waitForTimeout(3000); // After-typing reflection
 
-        update('📄 本文を作成しています...');
+        update('S08', 'Typing Body...');
         await page.waitForTimeout(2000); // Switching context pause
         await forceInput(bestSelectors.body, content.body, true);
         await page.waitForTimeout(4000); // Final proofread pause
 
-        update('💾 内容を最終確認して保存ボタンを押します...');
+        update('S09', 'Executing Draft Save');
         await page.waitForTimeout(3000); // Final pause before button click
         if (bestSelectors.save) {
             console.log(`[Action] Clicking Save Draft button.`);
@@ -439,9 +443,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.click('button:has-text("下書き保存")').catch(() => { });
             await page.waitForTimeout(5000);
         }
-        update('✨ 保存が完了しました');
+        update('S10', 'Save Complete. Finalizing session...');
 
-        update('🏁 最終確認を行っています...');
+        update('S10', 'Verifying storage persistence...');
         console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
 
         try {
@@ -467,7 +471,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             throw new Error(`下書き保存は完了しましたが、URLの特定に失敗しました。現在のURL: ${finalUrl}`);
         }
 
-        update('🎉 すべての作業が正常に完了しました！');
+        update('S99', 'Job Complete (Success)');
         saveJob(job); // Final save after all updates
 
         await browser.close();

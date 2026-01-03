@@ -1,18 +1,31 @@
 
 // 開発モード用の安全柵・フラグ管理
 
+import fs from "fs";
+import path from "path";
+
+const SETTINGS_FILE = !!(process.env.VERCEL)
+    ? path.join('/tmp', 'note_settings.json')
+    : path.join(process.cwd(), '.gemini/data/note_settings.json');
+
 export const DEV_SETTINGS = {
-    // 自動投稿を許可するかどうか (緊急停止スイッチ)
-    AUTO_POST_ENABLED: true, // 開発中はここをfalseにすると即停止
-
-    // 予約投稿系のフラグ（将来用）
+    AUTO_POST_ENABLED: true,
     SCHEDULE_ENABLED: false,
-    ALLOW_PUBLISH: false, // 絶対にfalse
-
-    // 安全制限
+    ALLOW_PUBLISH: false,
     MAX_JOBS_PER_DAY: 10,
-    MIN_INTERVAL_SECONDS: 30, // 連投防止インターバル
+    MIN_INTERVAL_SECONDS: 30,
 };
+
+export function getDevSettings() {
+    try {
+        if (fs.existsSync(SETTINGS_FILE)) {
+            const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+            return { ...DEV_SETTINGS, ...data };
+        }
+    } catch (e) { }
+    return DEV_SETTINGS;
+}
+
 
 // サーバーサイドでの開発モード判定
 // NODE_ENV だけでなく、明示的なチェックを行う

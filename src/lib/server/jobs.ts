@@ -24,6 +24,8 @@ export interface NoteJob {
     error_code: string | null;
     error_message: string | null;
     last_step: string | null;
+    scheduled_at: string | null;
+    tags: string[];
 }
 
 export function getAllJobs(): NoteJob[] {
