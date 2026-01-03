@@ -169,11 +169,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await update('S04', 'Entering Editor Canvas...');
         if (!page.url().includes('editor.note.com')) {
             // 手順書に則り、トップからの遷移を試みる
-            await page.click('.nc-header__post-button').catch(() => { });
-            await page.click('a[href*="/notes/new"], span:has-text("テキスト")').catch(() => { });
+            await page.click('.nc-header__post-button', { timeout: 5000 }).catch(() => { });
+            await page.click('a[href*="/notes/new"], span:has-text("テキスト")', { timeout: 5000 }).catch(() => { });
             // フォールバック
             if (!page.url().includes('editor.note.com')) {
-                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => { });
             }
         }
 
