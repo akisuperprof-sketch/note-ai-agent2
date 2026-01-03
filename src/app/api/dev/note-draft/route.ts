@@ -97,7 +97,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // Browserless Debugger URL をログに出す（お客様がクラウドの画面を直接見れるように）
             const sessionUrl = `https://chrome.browserless.io/debugger?token=${BROWSERLESS_TOKEN}`;
             await update('S01', `VISUAL DEBUG URL ${sessionUrl}`);
-            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
+            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, {
+                timeout: 35000,
+                slowMo: 50
+            });
         } else {
             const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
             browser = await chromium.launch({
@@ -171,7 +174,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 return {
                     tags,
                     hasEditor: !!document.querySelector('.ProseMirror'),
-                    isBlocked: body.includes('Access Denied') || body.includes('ロボットではありません')
+                    isBlocked: body.includes('Access Denied') || body.includes('ロボットではありません') || body.includes('429 Too Many Requests')
                 };
             }).catch(() => ({ tags: 0, hasEditor: false, isBlocked: false }));
 
@@ -183,6 +186,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
 
             if (stats.isBlocked || (stats.tags <= 50 && (i === 4 || i === 9))) {
+                if (stats.isBlocked) {
+                    await update('S04', '⚠️ BLOCKED DETECTED - PAUSING 180s FOR CHECK');
+                    await page.waitForTimeout(180000);
+                }
                 await update('S04', 'REBOOTING TAB');
                 await page.close().catch(() => { });
                 page = await context.newPage(); await injectStealth(page);
