@@ -1287,11 +1287,13 @@ export default function Home() {
 
   const [jobs, setJobs] = useState<NoteJob[]>([]);
 
-  const handleDraftPost = async (isTest: boolean = false) => {
+  const handleDraftPost = async (isTest: boolean = false, overrideMode?: string) => {
     if (!isTest && !articleText) {
       alert("記事が生成されていません");
       return;
     }
+
+    const mode = overrideMode || appMode;
 
     // 記事ID（タイトルから生成）とリクエストID（重複防止キー）
     const articleId = displayTitle ? btoa(encodeURI(displayTitle)).substring(0, 12) : `art_${Date.now()}`;
@@ -1306,7 +1308,7 @@ export default function Home() {
     }
 
     // Confirm only if not a test or if not in development mode (to avoid accidental production posts)
-    if (!isTest && appMode === "production") {
+    if (!isTest && mode === "production") {
       if (!confirm("noteへ実際に「下書き」保存を実行します。よろしいですか？")) return;
     }
 
@@ -1366,7 +1368,7 @@ export default function Home() {
           title: isTest ? "【テスト】ダミータイトル" : displayTitle,
           body: isTest ? "これは自動投稿のフロー確認用ダミー本文です。" : articleText,
           tags: hashtags,
-          mode: appMode,
+          mode: mode,
           email: noteEmail,
           password: notePassword,
           isTest,
@@ -2083,7 +2085,7 @@ export default function Home() {
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                       <Terminal size={16} className="text-purple-400" />
-                      <h4 className="text-sm font-black text-white uppercase">Development Mode 2: Full-Auto</h4>
+                      <h4 className="text-sm font-black text-white uppercase">Development Mode 2/3: Full-Auto</h4>
                     </div>
                     <div className="space-y-2">
                       <input
@@ -2120,12 +2122,20 @@ export default function Home() {
                       </label>
                     </div>
 
-                    <button
-                      onClick={() => handleDraftPost(false)}
-                      className="w-full py-4 bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 rounded-2xl text-xs font-black text-white transition-all shadow-xl shadow-orange-500/10 scale-active"
-                    >
-                      EXECUTE AUTOMATION
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleDraftPost(false)}
+                        className="py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[10px] font-black text-white transition-all scale-active"
+                      >
+                        MODE 2/3 EXECUTE
+                      </button>
+                      <button
+                        onClick={() => handleDraftPost(false, 'development_v4')}
+                        className="py-4 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 rounded-2xl text-[10px] font-black text-white transition-all shadow-xl shadow-purple-500/20 scale-active"
+                      >
+                        MODE 4 GHOST INJECT
+                      </button>
+                    </div>
                   </div>
                 </div>
 

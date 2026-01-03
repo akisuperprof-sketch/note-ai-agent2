@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
                 sendUpdate({ status: 'running', last_step: job.last_step });
 
                 await runNoteDraftAction(job, {
-                    title, body, tags, scheduled_at, email, password, visualDebug
+                    title, body, tags, scheduled_at, email, password, visualDebug, mode
                 }, (step) => {
                     sendUpdate({ status: 'running', last_step: step });
                 });
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     });
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string, visualDebug?: boolean }, onUpdate: (step: string) => void) {
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string, visualDebug?: boolean, mode?: string }, onUpdate: (step: string) => void) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
     job.tags = content.tags || [];
@@ -113,7 +113,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-03-1740";
+        const VERSION = "2026-01-03-1935-FIX-SPA";
         update('S01', `Load Session / Browser Init [v:${VERSION}]`);
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
         const settings = getDevSettings();
@@ -183,7 +183,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         });
         page.on('console', (msg: any) => {
-            if (msg.type() === 'error') console.log(`[JS Error] ${msg.text()}`);
+            if (msg.type() === 'error') {
+                const txt = msg.text();
+                console.log(`[JS Error] ${txt}`);
+                if (!txt.includes('Failed to load resource')) {
+                    onUpdate(`[Browser Error] ${txt.substring(0, 80)}`);
+                }
+            }
         });
 
         await page.setDefaultTimeout(20000);
@@ -193,11 +199,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await page.waitForTimeout(8000); // 8s wait to look like a human reading the home page
 
         // Check if already on editor or need to navigate
+        const isLoginPage = page.url().includes('/login');
+        const isGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], .nc-header__login-button'));
+
         if (page.url().includes('/notes/new')) {
             update('S02', 'Confirmed: Editor direct access');
             await page.waitForTimeout(5000);
-        } else if (page.url().includes('/login')) {
-            update('S03', 'Authentication required');
+        } else if (isLoginPage || isGuest) {
+            update('S03', isGuest ? 'Guest detected. Forcing login...' : 'Authentication required');
+            if (isGuest && !isLoginPage) {
+                await page.goto('https://note.com/login', { waitUntil: 'load' });
+            }
             if (content.email && content.password) {
                 await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
                 await page.fill('input[type="email"], input[name="mail"], #email', content.email);
@@ -233,28 +245,50 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         if (!page.url().includes('editor.note.com')) {
             update('S04', 'Locating Post button');
             // Wait for header elements to really appear
-            await page.waitForSelector('.nc-header', { timeout: 5000 }).catch(() => { });
+            await page.waitForSelector('.nc-header', { timeout: 8000 }).catch(() => { });
+
+            // Re-check for guest state (maybe login failed or redirected)
+            const stillGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], .nc-header__login-button'));
+            if (stillGuest) throw new Error("ログイン状態の確認に失敗しました。ゲストとして認識されています。");
+
             const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button, .nc-header__post-nav-item').first();
 
             if (await postBtn.isVisible()) {
                 await postBtn.click();
                 await page.waitForTimeout(3000);
-                // Handle sub-menu for "Text" if visible
                 const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"], a:has-text("テキスト")').first();
                 if (await textBtn.isVisible()) {
                     await textBtn.click();
                 } else {
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                    update('S04', 'Post menu hidden. Forcing editor URL.');
+                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 }
             } else {
-                update('S04', `Direct navigation to editor (URL: ${page.url()})`);
-                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
+                update('S04', 'Post button not found. Using direct URL.');
+                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
-            // CRITICAL: Wait for editor application to boot up
-            update('S04', `Waiting for Editor SPA boot (Current URL: ${page.url()})`);
+
+            update('S04', 'Waiting for ID redirect...');
+            try {
+                // Wait for the redirect to a specific note ID (e.g., /notes/nxxxxx/edit)
+                await page.waitForURL((u: URL) => u.href.includes('/notes/') && !u.href.endsWith('/new'), { timeout: 15000 });
+                update('S04', `Editor Booting (URL: ${page.url().substring(page.url().length - 25)})`);
+            } catch (e) {
+                const currentUrl = page.url();
+                update('S04', `Redirect slow. Checking current: ${currentUrl.substring(0, 40)}`);
+                // If stuck on /new, try to force a reload after a bit
+                if (currentUrl.endsWith('/new')) {
+                    await page.reload({ waitUntil: 'domcontentloaded' });
+                }
+            }
+
+            update('S04', 'Waiting for React/SPA hydration...');
+            try {
+                await page.waitForLoadState('networkidle', { timeout: 10000 });
+            } catch (e) { }
             await page.waitForTimeout(10000);
         }
-        update('S05', 'Editor confirmed');
+        update('S05', `Editor confirmed (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
 
         // Tutorial Bypass (Aggressive)
         update('S05', 'Bypassing tutorials/overlays');
@@ -335,175 +369,119 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 解析結果: [URL: ${finalUrl}] [Title: ${lastDiag?.title || 'none'}] [Tags: ${lastDiag?.tags || 0}]`);
         }
 
-        const bestSelectors = await page.evaluate(() => {
-            const getSelector = (el: Element) => {
-                const tid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
-                if (tid) return `[data-testid="${tid}"]`;
-                return null;
-            };
-
-            const titleCandidates = [
-                'textarea[placeholder="記事タイトル"]', 'textarea[placeholder*="タイトル"]',
-                'h1[contenteditable="true"]', '[data-testid="note-title"]', 'textarea'
-            ];
-            const bodyCandidates = [
-                'div.ProseMirror[role="textbox"]', '.note-editor',
-                '[data-editor-type="article"]', '[aria-label*="本文"]', '[role="textbox"]'
-            ];
-
-            let titleEl = null;
-            for (const sel of titleCandidates) {
-                const el = document.querySelector(sel);
-                if (el && (el as HTMLElement).offsetParent !== null) { titleEl = el; break; }
-            }
-
-            let bodyEl = null;
-            for (const sel of bodyCandidates) {
-                const el = document.querySelector(sel);
-                if (el && (el as HTMLElement).offsetParent !== null) { bodyEl = el; break; }
-            }
-
-            const saveBtn = Array.from(document.querySelectorAll('button')).find(b =>
-                b.textContent?.includes('下書き保存') || b.textContent?.includes('Save draft') || b.textContent?.includes('完了')
-            );
-
-            return {
-                title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea')) : null,
-                body: bodyEl ? (getSelector(bodyEl) || (bodyEl.classList.contains('ProseMirror') ? 'div.ProseMirror[role="textbox"]' : '.note-editor')) : null,
-                save: saveBtn ? 'button:has-text("下書き保存")' : null
-            };
-        });
-
-        console.log(`[Diagnostic] Final Selectors:`, bestSelectors);
-
-        if (!bestSelectors.title || !bestSelectors.body) {
-            if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-            const diag = await page.evaluate(() => ({
-                len: document.body.innerText.length,
-                tags: document.querySelectorAll('*').length,
-                title: document.title
-            }));
-            throw new Error(`解析失敗(S03)。状況: ${JSON.stringify(diag)} URL: ${page.url().substring(0, 40)}`);
-        }
-
-        update('S06', 'Editor Analysis Success');
-
-        const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
-            const el = page.locator(selector).first();
-            await el.scrollIntoViewIfNeeded();
-            await el.click();
-            await page.waitForTimeout(1000);
-
-            // Split into human-like "bursts" (e.g., paragraphs or character blocks)
-            // For Vercel, we can't do char-by-char for long text, but we can do small chunks.
-            const chunks = isBody ? text.match(/[\s\S]{1,150}/g) || [text] : text.match(/[\s\S]{1,20}/g) || [text];
-
-            update(isBody ? 'S08' : 'S07', `${isBody ? 'Body' : 'Title'} Input Processing...`);
-
-            for (const chunk of chunks) {
-                await page.evaluate(({ sel, txt }: { sel: string, txt: string }) => {
-                    const target = document.querySelector(sel) as any;
-                    if (!target) return;
-                    target.focus();
-
-                    // Use insertText to trigger React/ProseMirror state updates naturally
-                    const success = document.execCommand('insertText', false, txt);
-
-                    // Fallback to manual event dispatching if insertText fails
-                    if (!success) {
-                        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-                            target.value += txt;
-                            target.dispatchEvent(new Event('input', { bubbles: true }));
-                        } else {
-                            target.innerText += txt;
-                            target.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
+        if (content.mode === 'development_v4') {
+            update('S06', 'Ghost Injection: Targeting Editor Core');
+            const injectionSuccess = await page.evaluate(({ title, body }: { title: string, body: string }) => {
+                const findEl = (selectors: string[]) => {
+                    for (let s of selectors) {
+                        const el = document.querySelector(s);
+                        if (el && (el as HTMLElement).offsetParent !== null) return el;
                     }
-                }, { sel: selector, txt: chunk });
+                    return null;
+                };
 
-                // Randomized human-like pause between "bursts"
-                await page.waitForTimeout(400 + Math.random() * 600);
+                const titleEl = findEl(['textarea[placeholder*="タイトル"]', '.note-editor-title textarea', 'h1[contenteditable="true"]']) as any;
+                const bodyEl = findEl(['div.ProseMirror[role="textbox"]', '.ProseMirror', '.note-editor-body']) as any;
 
-                // Extra pause at paragraph ends (Human checking the progress)
-                if (chunk.includes('\n')) {
-                    update(isBody ? 'S08' : 'S07', 'Proofreading progress...');
-                    await page.waitForTimeout(1200 + Math.random() * 800);
+                if (!titleEl || !bodyEl) return false;
+
+                titleEl.focus();
+                document.execCommand('insertText', false, title);
+                bodyEl.focus();
+                document.execCommand('insertText', false, body);
+                return true;
+            }, { title: content.title, body: content.body });
+
+            if (!injectionSuccess) throw new Error("Ghost Injection failed: Editor not found.");
+            update('S08', 'Ghost Injection Success');
+            await page.waitForTimeout(2000);
+        } else {
+            const bestSelectors = await page.evaluate(() => {
+                const getSelector = (el: Element) => {
+                    const tid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+                    if (tid) return `[data-testid="${tid}"]`;
+                    return null;
+                };
+                const titleCandidates = ['textarea[placeholder*="タイトル"]', '.note-editor-title textarea', 'h1[contenteditable="true"]'];
+                const bodyCandidates = ['div.ProseMirror[role="textbox"]', '.note-editor', '.ProseMirror'];
+
+                let titleEl: any = null;
+                for (const s of titleCandidates) {
+                    const el = document.querySelector(s);
+                    if (el && (el as HTMLElement).offsetParent !== null) { titleEl = el; break; }
                 }
-            }
-        };
 
-        update('S07', 'Typing Title...');
-        await page.waitForTimeout(2000); // Pre-typing pause
-        await forceInput(bestSelectors.title, content.title);
-        await page.waitForTimeout(3000); // After-typing reflection
+                let bodyEl: any = null;
+                for (const s of bodyCandidates) {
+                    const el = document.querySelector(s);
+                    if (el && (el as HTMLElement).offsetParent !== null) { bodyEl = el; break; }
+                }
 
-        update('S08', 'Typing Body...');
-        await page.waitForTimeout(2000); // Switching context pause
-        await forceInput(bestSelectors.body, content.body, true);
-        await page.waitForTimeout(4000); // Final proofread pause
+                const saveBtn = Array.from(document.querySelectorAll('button')).find(b =>
+                    b.textContent?.includes('下書き保存') || b.textContent?.includes('Save draft')
+                );
+
+                return {
+                    title: titleEl ? (getSelector(titleEl) || (titleEl.tagName === 'H1' ? 'h1[contenteditable="true"]' : 'textarea')) : null,
+                    body: bodyEl ? (getSelector(bodyEl) || 'div.ProseMirror[role="textbox"]') : null,
+                    save: saveBtn ? 'button:has-text("下書き保存")' : null
+                };
+            });
+
+            if (!bestSelectors.title || !bestSelectors.body) throw new Error("解析失敗: セレクタが見つかりません");
+
+            update('S06', 'Editor Analysis Success');
+
+            const forceInput = async (selector: string, text: string, isBody: boolean = false) => {
+                const el = page.locator(selector).first();
+                await el.scrollIntoViewIfNeeded();
+                await el.click();
+                await page.waitForTimeout(1000);
+                const chunks = isBody ? text.match(/[\s\S]{1,150}/g) || [text] : text.match(/[\s\S]{1,20}/g) || [text];
+                for (const chunk of chunks) {
+                    await page.evaluate(({ sel, txt }: { sel: string, txt: string }) => {
+                        const t = document.querySelector(sel) as any;
+                        if (t) { t.focus(); document.execCommand('insertText', false, txt); }
+                    }, { sel: selector, txt: chunk });
+                    await page.waitForTimeout(400 + Math.random() * 600);
+                }
+            };
+
+            update('S07', 'Typing Title...');
+            await forceInput(bestSelectors.title, content.title);
+            update('S08', 'Typing Body...');
+            await forceInput(bestSelectors.body, content.body, true);
+        }
 
         update('S09', 'Executing Draft Save');
-        await page.waitForTimeout(3000); // Final pause before button click
-        if (bestSelectors.save) {
-            console.log(`[Action] Clicking Save Draft button.`);
-            await page.click(bestSelectors.save);
-            await page.waitForTimeout(5000); // Long wait for server sync
-        } else {
-            // Fallback for save button if selector was missed
-            await page.click('button:has-text("下書き保存")').catch(() => { });
-            await page.waitForTimeout(5000);
-        }
-        update('S10', 'Save Complete. Finalizing session...');
-
-        update('S10', 'Verifying storage persistence...');
-        console.log(`[Action] Waiting for URL transition. Current: ${page.url()}`);
+        await page.click('button:has-text("下書き保存"), button:has-text("Save draft")').catch(async () => {
+            await page.mouse.click(1100, 50).catch(() => { }); // Common save area
+        });
+        await page.waitForTimeout(5000);
 
         try {
-            // New editor is on editor.note.com, old one on note.com
-            await page.waitForURL((u: URL) => {
-                const h = u.href;
-                return (h.includes('/edit') || h.includes('/notes/n')) && !h.endsWith('/new');
-            }, { timeout: 20000 });
-            console.log(`[Action] Save detected: ${page.url()}`);
-        } catch (e) {
-            console.warn(`[Action] URL transition timeout. Final URL: ${page.url()}`);
-        }
-
-        await page.waitForTimeout(2000);
+            await page.waitForURL((u: URL) => (u.href.includes('/edit') || u.href.includes('/notes/n')) && !u.href.endsWith('/new'), { timeout: 20000 });
+        } catch (e) { }
 
         job.status = 'success';
         job.finished_at = new Date().toISOString();
-        const finalUrl = page.url();
-        job.note_url = finalUrl;
-
-        // If it still says "/new", it means the post likely didn't persist as a draft with a unique ID
-        if (finalUrl.endsWith('/new')) {
-            throw new Error(`下書き保存は完了しましたが、URLの特定に失敗しました。現在のURL: ${finalUrl}`);
-        }
-
-        update('S99', 'Job Complete (Success)');
-        saveJob(job); // Final save after all updates
-
+        job.note_url = page.url();
+        update('S99', 'Job Complete');
+        saveJob(job);
         await browser.close();
-        return { status: 'success', job_id: job.job_id, note_url: job.note_url, last_step: job.last_step };
+        return { status: 'success', job_id: job.job_id, note_url: job.note_url };
 
     } catch (e: any) {
         job.status = 'failed';
-        job.error_code = 'STEP_FAILED';
         job.error_message = e.message;
         job.finished_at = new Date().toISOString();
-        saveJob(job); // Save job with error details
-        try {
-            if (page) {
-                if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-                const buf = await page.screenshot({ type: 'png' });
-                job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
-                saveJob(job);
-            }
-        } catch (ssError) {
-            console.error("Failed to capture failure screenshot:", ssError);
+        saveJob(job);
+        if (page) {
+            const buf = await page.screenshot({ type: 'png' }).catch(() => null);
+            if (buf) job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
+            saveJob(job);
         }
         if (browser) await browser.close();
-        throw e; // Re-throw to be caught by the POST handler
+        throw e;
     }
 }
