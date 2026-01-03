@@ -95,7 +95,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-04-0615-AUTH-SETTLE";
+        const VERSION = "2026-01-04-0630-FINAL-PRECISION";
         update('S01', `Engine v${VERSION}`);
 
         const settings = getDevSettings();
@@ -136,19 +136,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             if (content.email && content.password) {
                 await page.fill('input#email', content.email);
                 await page.fill('input#password', content.password);
-
-                // 【復元】堅牢なログインボタンスマッシュ
                 const btn = page.locator('button[data-type="primaryNext"], button:has-text("ログイン"), .o-login__submit').first();
                 await btn.click({ force: true });
-
-                // 【重要】ログイン後の「自分を確認」できるまで待つ
                 update('S03', 'Waiting for Auth Settlement...');
                 await page.waitForSelector('.nc-header__user-menu, .nc-header__profile', { timeout: 25000 });
-
-                // 【重要】別ドメイン(editor)を一度踏んでセッションを同期させる
                 await page.goto('https://editor.note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 await page.waitForTimeout(2000);
-
                 const fullState = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(fullState));
                 update('S03', 'Login success. Session Sync Complete.');
@@ -156,24 +149,24 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         // --- S04: Editor Entry ---
-        update('S04', 'Triggering Editor Entry...');
+        update('S04', 'Opening Editor Canvas...');
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
 
         let editorBound = false;
         for (let i = 0; i < 6; i++) {
             const url = page.url();
             const tags = await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0);
-            const title = await page.title().catch(() => 'No Title');
+            const hasEditor = await page.evaluate(() => !!document.querySelector('.ProseMirror'));
+            const title = await page.title().catch(() => 'Editor');
 
             update('S04', `Sync ${i + 1}/6: [Tags:${tags}] at [${url.substring(0, 45)}...] (${title})`);
 
-            if (tags > 150 && url.includes('editor.note.com')) {
-                update('S04', 'Editor Hydrated Successfully.');
+            if (tags > 200 && (hasEditor || url.includes('editor.note.com'))) {
+                update('S04', 'Editor Hydrated! (Ready for Injection)');
                 editorBound = true;
                 break;
             }
 
-            // Rescue Action
             if (tags < 100) {
                 if (i === 2) {
                     update('S04', 'Stall detected. Hard Reloading...');
@@ -186,25 +179,37 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.waitForTimeout(5000);
         }
 
-        if (!editorBound) throw new Error(`Editor hydration failed (Stayed at Tags:${await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)})`);
+        if (!editorBound) throw new Error(`Hydration failed (Tags:${await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)})`);
 
         // --- S05 ~ S10: Execution ---
-        update('S05', 'Clearing Overlays');
+        update('S05', 'Bypassing Overlays...');
         await page.evaluate(() => {
             const skip = ["次へ", "閉じる", "スキップ", "理解しました", "OK", "×"];
             document.querySelectorAll('button, div[role="button"], span').forEach((el: any) => {
                 if (skip.some(t => el.textContent?.includes(t) || el.getAttribute('aria-label')?.includes(t))) el.click();
             });
-            document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop').forEach(el => el.remove());
+            document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop, [class*="modal"]').forEach(el => el.remove());
         }).catch(() => { });
         await page.waitForTimeout(2000);
 
-        update('S07', 'Injecting Title & Body...');
+        update('S07', 'Injecting Content into Red/Blue Boxes...');
         await page.evaluate(({ t, b }: { t: string, b: string }) => {
-            const titleEl = document.querySelector('textarea[placeholder*="タイトル"]') as any;
-            const bodyEl = document.querySelector('.ProseMirror') as any;
-            if (titleEl) { titleEl.focus(); document.execCommand('insertText', false, t); }
-            if (bodyEl) { bodyEl.focus(); document.execCommand('insertText', false, b); }
+            const titleEl = document.querySelector('textarea[placeholder*="タイトル"]') as HTMLTextAreaElement;
+            const bodyEl = document.querySelector('.ProseMirror') as HTMLElement;
+
+            if (titleEl) {
+                titleEl.focus();
+                titleEl.value = '';
+                document.execCommand('insertText', false, t);
+                titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            if (bodyEl) {
+                bodyEl.focus();
+                document.execCommand('selectAll', false, undefined);
+                document.execCommand('delete', false, undefined);
+                document.execCommand('insertText', false, b);
+            }
         }, { t: content.title, b: content.body });
 
         update('S10', 'Finalizing...');
