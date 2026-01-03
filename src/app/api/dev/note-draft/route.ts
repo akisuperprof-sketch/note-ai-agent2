@@ -118,7 +118,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-0700-PURE-BROWSERLESS-RESTORE";
+        const VERSION = "2026-01-04-1100-PURE-BROWSERLESS-DIRECT-EDITOR";
         await update('S01', `Engine v${VERSION}`);
 
         // 成功実績のある「Browserless (if token exists)」構成を完全復元
@@ -175,9 +175,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             } else { throw new Error("Credentials missing"); }
         }
 
-        // --- S04: Editor Entry ---
-        await update('S04', 'Navigating to Editor...');
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+        // --- S04: Editor Entry (Direct App URL) ---
+        await update('S04', 'Navigating to Direct Editor...');
+        await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
 
         let hydrated = false;
         for (let i = 0; i < 15; i++) {
@@ -203,7 +203,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     await page.close().catch(() => { });
                     page = await context.newPage();
                     await injectStealth(page);
-                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                    await page.goto('https://editor.note.com/new', { waitUntil: 'load' }).catch(() => { });
                 } else if (i % 2 === 0) {
                     await page.mouse.click(720, 10).catch(() => { });
                     await page.keyboard.press('Escape').catch(() => { });
