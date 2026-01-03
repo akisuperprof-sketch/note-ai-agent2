@@ -33,7 +33,8 @@ type NoteJob = {
 
 function saveJob(job: NoteJob) {
     try {
-        if (!fs.existsSync(JOBS_DIR)) fs.mkdirSync(JOBS_DIR, { recursive: true });
+        const dir = path.dirname(path.join(JOBS_DIR, `${job.job_id}.json`));
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(JOBS_DIR, `${job.job_id}.json`), JSON.stringify(job, null, 2));
     } catch (e) {
         console.error("Failed to save job metadata:", e);
@@ -46,16 +47,18 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
         async start(controller) {
             const sendUpdate = (step: string) => {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ last_step: step })}\n\n`));
+                controller.enqueue(encoder.encode(`${JSON.stringify({ last_step: step })}\n`));
             };
 
             const heartbeat = setInterval(() => {
-                controller.enqueue(encoder.encode(': heartbeat\n\n'));
+                controller.enqueue(encoder.encode('\n'));
             }, 5000);
 
             try {
                 const body = await req.json();
                 const { title, body: noteBody, tags, scheduled_at, mode, visualDebug } = body;
+
+                sendUpdate("Connection Established");
 
                 if (!validateDevMode(mode)) throw new Error(`Invalid mode: ${mode}`);
 
@@ -86,10 +89,10 @@ export async function POST(req: NextRequest) {
                     mode
                 }, sendUpdate);
 
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: 'success', job_id: jobId, note_url: result.note_url })}\n\n`));
+                controller.enqueue(encoder.encode(`${JSON.stringify({ status: 'success', job_id: jobId, note_url: result.note_url })}\n`));
             } catch (error: any) {
                 console.error("Action Error:", error);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
+                controller.enqueue(encoder.encode(`${JSON.stringify({ error: error.message })}\n`));
             } finally {
                 clearInterval(heartbeat);
                 controller.close();
