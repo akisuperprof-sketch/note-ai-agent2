@@ -262,54 +262,56 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
-        // Step S04: Editor Entry
-        update('S04', 'Navigating to Editor...');
-        // Try direct entry first
-        await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 40000 }).catch(() => {
-            update('S04', 'Direct entry timeout. Continuing monitoring...');
-        });
+        // Human Action: Editor Entry
+        update('S04', 'Entering Editor Entry Point...');
+        // Step 1: Try the standard creation entry point
+        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { });
 
         let redirectSuccess = false;
-        for (let i = 0; i < 11; i++) {
+        for (let i = 0; i < 12; i++) {
             const currentUrl = page.url();
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
 
-            // Analysis: note.com SPA skeleton is ~40 tags. Fully hydrated is 150+.
-            if ((currentUrl.includes('editor.note.com') || currentUrl.includes('/notes/')) && !currentUrl.endsWith('/new')) {
-                if (tagCount > 150) {
-                    update('S04', `Editor Active: ${tagCount} elements.`);
-                    redirectSuccess = true;
-                    break;
-                }
+            // SUCCESS CONDITION: URL has a note ID (n...) and is in edit mode
+            const hasNoteId = /\/n[a-z0-9]+\/edit/.test(currentUrl);
+            const isEditorSubdomain = currentUrl.includes('editor.note.com');
+
+            if ((hasNoteId || isEditorSubdomain) && tagCount > 80 && !currentUrl.endsWith('/new')) {
+                update('S04', `Editor ID Acquired: ${currentUrl.substring(currentUrl.lastIndexOf('/') - 15)} (${tagCount} tags)`);
+                redirectSuccess = true;
+                break;
             }
 
-            // Fallback: If still on home page or stuck on home page redirect
+            update('S04', `Wait (${i + 1}/12) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 25)}`);
+
+            // Rescue 1: If stuck on home page
             if (currentUrl === 'https://note.com/' || currentUrl.includes('note.com/?')) {
                 const postBtn = page.locator('.nc-header__post-button, button:has-text("投稿")').first();
                 if (await postBtn.isVisible()) {
-                    update('S04', 'Clicking Post button on home page...');
+                    update('S04', 'Triggering Editor via button click...');
                     await postBtn.click().catch(() => { });
+                } else if (i > 2) {
+                    update('S04', 'Attempting Alternative Entry (editor.note.com/new)...');
+                    await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 }
             }
 
-            update('S04', `Wait (${i + 1}/11) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 20)}`);
-
-            // Rescue: If stuck on skeleton (white screen) for 4 cycles (~16s), force reload
-            if (i === 4 && tagCount < 75) {
-                update('S04', 'White screen (Skeleton) stall detected. Refreshing...');
-                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-            }
-
-            // Interaction to trigger hydration
-            if (i > 1 && tagCount < 110) {
-                await page.mouse.click(500, 300).catch(() => { });
+            // Rescue 2: If stuck on /new (White Screen / Skeleton)
+            if (currentUrl.endsWith('/new') && i > 3) {
+                if (i % 3 === 0) {
+                    update('S04', 'Still on /new. Pushing navigation again...');
+                    const nextEntry = i > 6 ? 'https://editor.note.com/new' : 'https://note.com/notes/new';
+                    await page.goto(nextEntry, { waitUntil: 'domcontentloaded' }).catch(() => { });
+                }
+                // Interaction to wake up SPA
+                await page.mouse.click(600, 400).catch(() => { });
             }
 
             await page.waitForTimeout(4000);
         }
 
         if (!redirectSuccess) {
-            update('S04', 'Redirect timeout (proceeding anyway)');
+            update('S04', 'Proceeding with current URL (ID acquisition may be delayed)');
         }
         await page.waitForTimeout(3000);
 
