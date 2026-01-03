@@ -31,7 +31,7 @@ export function getDevSettings() {
 // サーバーサイドでの開発モード判定
 // NODE_ENV だけでなく、明示的なチェックを行う
 export function validateDevMode(requestMode: string): boolean {
-    if (requestMode !== 'development') return false;
+    if (!requestMode.startsWith('development')) return false;
     // ここに環境変数のチェックなどを追加可能
     return true;
 }
