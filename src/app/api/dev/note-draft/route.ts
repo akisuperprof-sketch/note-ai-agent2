@@ -142,7 +142,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // --- S03: Authentication ---
         const loggedInSelector = '.nc-header__user-menu, .nc-header__profile, .nc-header__post-button';
-        let isGuest = await page.evaluate((sel) => !document.querySelector(sel), loggedInSelector);
+        let isGuest = await page.evaluate((sel: string) => !document.querySelector(sel), loggedInSelector);
 
         if (isGuest || page.url().includes('/login')) {
             update('S03', 'Auth Triggered.');
