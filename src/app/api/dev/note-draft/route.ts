@@ -17,6 +17,8 @@ const SESSION_FILE = isServerless
 
 type NoteJob = {
     job_id: string;
+    article_id: string;
+    request_id: string;
     mode: string;
     status: 'pending' | 'running' | 'success' | 'failed';
     last_step: string;
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
 
             try {
                 const body = await req.json();
-                const { title, body: noteBody, tags, scheduled_at, mode, visualDebug, email, password } = body;
+                const { title, body: noteBody, tags, scheduled_at, mode, visualDebug, email, password, request_id, article_id } = body;
 
                 sendUpdate("Connection Established");
 
@@ -65,6 +67,8 @@ export async function POST(req: NextRequest) {
                 const jobId = `job-${Date.now()}`;
                 const job: NoteJob = {
                     job_id: jobId,
+                    article_id: article_id || 'unknown',
+                    request_id: request_id || 'unknown',
                     mode,
                     status: 'pending',
                     last_step: 'Initializing Engine...',
