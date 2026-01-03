@@ -141,13 +141,24 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             locale: 'ja-JP',
             timezoneId: 'Asia/Tokyo',
             extraHTTPHeaders: {
-                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                // Natural headers for Mac Chrome to avoid CORS/Security blocks
+                'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+                'Upgrade-Insecure-Requests': '1',
             }
         });
 
-        // Simple Stealth
+        // Advanced Stealth Initialization
         await context.addInitScript(() => {
+            // Hide webdriver
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            // Stable languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja'] });
+            // Realistic platform
+            Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+            // Mock hardware concurrency
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
         });
 
         if (fs.existsSync(SESSION_FILE)) {
@@ -170,11 +181,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         page.on('console', (msg: any) => {
             if (msg.type() === 'error') {
                 const txt = msg.text();
-                console.log(`[JS Error] ${txt}`);
-                if (!txt.includes('Failed to load resource')) {
+                if (!txt.includes('Failed to load resource') && !txt.includes('chrome-extension')) {
                     onUpdate(`[Browser Error] ${txt.substring(0, 80)}`);
                 }
             }
+        });
+        page.on('pageerror', (err: any) => {
+            onUpdate(`[SPA Crash] ${err.message.substring(0, 80)}`);
         });
 
         await page.setDefaultTimeout(20000);
@@ -256,22 +269,20 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         update('S04', 'Entering Editor (Pen Mode)...');
 
         // Go home first to ensure fresh state
-        await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
-        await page.waitForTimeout(4000);
+        await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { });
+        await page.waitForTimeout(5000);
 
-        // --- NEW: Aggressive Pre-entry Popup Removal ---
+        // --- Aggressive Pre-entry Popup Removal ---
         await page.evaluate(() => {
             const popupCloseButtons = Array.from(document.querySelectorAll('button, div, span')).filter(el => {
                 const label = el.getAttribute('aria-label');
                 const text = el.textContent || "";
                 return (label && (label.includes('閉じる') || label.includes('Close'))) ||
-                    text.includes('閉じる') || text.includes('スキップ');
+                    text.includes('閉じる') || text.includes('スキップ') || text.includes('×');
             });
             popupCloseButtons.forEach((b: any) => b.click());
-
-            // Forcibly remove known blocker classes
-            const blockers = document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-popover');
-            blockers.forEach((el: any) => el.remove());
+            // Remove known blockers
+            document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-popover, .nc-modal-backdrop').forEach((el: any) => el.remove());
         }).catch(() => { });
 
         // Try to click the "Post" button (the pen mark)
@@ -279,19 +290,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         if (await postButton.isVisible()) {
             update('S04', 'Clicking Post Button...');
             await postButton.click().catch(() => { });
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(3000); // Wait for menu animation
 
             // Look for "テキスト" (Text) in the menu
-            const textOption = page.locator('a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"]').first();
+            const textOption = page.locator('a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"], .nc-post-menu__item-text').first();
             if (await textOption.isVisible()) {
                 update('S04', 'Selecting "Text" (記事作成)...');
                 await textOption.click().catch(() => { });
             } else {
-                update('S04', 'Post menu hidden. Directing to /new...');
+                update('S04', 'Menu stall. Directing to creation URL...');
                 await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
         } else {
-            update('S04', 'Post button not found. Using direct navigation...');
+            update('S04', 'Pen mark not visible. Using direct entry...');
             await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
         }
 
@@ -300,12 +311,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             const currentUrl = page.url();
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
 
-            // SUCCESS CONDITION: URL has a note ID (n...) and is in edit mode
+            // SUCCESS CONDITION: URL has a note ID (n...) or is on editor subdomain
             const isEditUrl = /\/n[a-z0-9]+\/edit/.test(currentUrl) || currentUrl.includes('editor.note.com');
-            const hasStartedHydration = tagCount > 150; // Increased threshold for true stability
+            const hasDraftSuccess = tagCount > 120; // Lowered slightly to capture early hydration
 
-            if (isEditUrl && hasStartedHydration && !currentUrl.endsWith('/new')) {
-                update('S04', `Editor Active: Note ID Ready (${tagCount} tags)`);
+            if (isEditUrl && hasDraftSuccess && !currentUrl.endsWith('/new')) {
+                update('S04', `Editor Active: Note ID Issued (${tagCount} tags)`);
                 redirectSuccess = true;
                 break;
             }
@@ -315,15 +326,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             update('S04', `Monitor Session (${i + 1}/15): ${statusText} [Tags: ${tagCount}]`);
 
             // Rescue: If stuck on white screen (Tags: 40) for too long
-            if (tagCount < 60 && i === 6) {
-                update('S04', 'Skeleton stall detected. Forcing clean refresh...');
-                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-            }
-
-            // Generic stimuli
-            if (i > 3 && tagCount < 100) {
-                await page.mouse.click(10, 10).catch(() => { });
-                await page.keyboard.press('Escape').catch(() => { });
+            if (tagCount < 60 && i > 3) {
+                if (i === 6) {
+                    update('S04', 'Draft creation stall. Re-triggering entry...');
+                    await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                } else if (i === 10) {
+                    update('S04', 'Hard reset: Reloading creation page...');
+                    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+                } else {
+                    await page.mouse.click(10, 10).catch(() => { });
+                    await page.keyboard.press('Escape').catch(() => { });
+                }
             }
 
             await page.waitForTimeout(4000);
