@@ -255,39 +255,54 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             if (await postBtn.isVisible()) {
                 await postBtn.click();
-                await page.waitForTimeout(3000);
+                update('S04', 'Post menu clicked. Waiting for Text option...');
+                // Wait for the menu with high resilience
                 const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"], a:has-text("テキスト")').first();
-                if (await textBtn.isVisible()) {
+                try {
+                    await textBtn.waitFor({ state: 'visible', timeout: 8000 });
                     await textBtn.click();
-                } else {
-                    update('S04', 'Post menu hidden. Forcing editor URL.');
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                } catch (e) {
+                    update('S04', 'Post menu hidden. Forcing navigation.');
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 }
             } else {
-                update('S04', 'Post button not found. Using direct URL.');
-                await page.goto('https://editor.note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                update('S04', 'Post button not found. Using direct navigation.');
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
 
-            update('S04', 'Waiting for ID redirect...');
-            try {
-                // Wait for the redirect to a specific note ID (e.g., /notes/nxxxxx/edit)
-                await page.waitForURL((u: URL) => u.href.includes('/notes/') && !u.href.endsWith('/new'), { timeout: 15000 });
-                update('S04', `Editor Booting (URL: ${page.url().substring(page.url().length - 25)})`);
-            } catch (e) {
+            update('S04', 'Waiting for Editor redirect...');
+            let redirectSuccess = false;
+            for (let i = 0; i < 5; i++) {
                 const currentUrl = page.url();
-                update('S04', `Redirect slow. Checking current: ${currentUrl.substring(0, 40)}`);
-                // If stuck on /new, try to force a reload after a bit
-                if (currentUrl.endsWith('/new')) {
+                if (currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) {
+                    update('S04', `Redirect success: ${currentUrl.substring(currentUrl.length - 20)}`);
+                    redirectSuccess = true;
+                    break;
+                }
+                update('S04', `Waiting for ID redirect (${i + 1}/5)... (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
+                await page.waitForTimeout(4000);
+                if (currentUrl.endsWith('/new') && i === 2) {
+                    update('S04', 'Still on /new. Forcing reload.');
                     await page.reload({ waitUntil: 'domcontentloaded' });
                 }
             }
 
-            update('S04', 'Waiting for React/SPA hydration...');
-            try {
-                await page.waitForLoadState('networkidle', { timeout: 10000 });
-            } catch (e) { }
-            await page.waitForTimeout(10000);
+            if (!redirectSuccess) {
+                const diag = await page.evaluate(() => ({
+                    tags: document.querySelectorAll('*').length,
+                    title: document.title,
+                    url: window.location.href
+                }));
+                update('S04', `Redirect timeout. State: ${JSON.stringify(diag)}`);
+            }
+            await page.waitForTimeout(5000);
         }
+
+        update('S04', 'Waiting for React/SPA hydration...');
+        try {
+            await page.waitForLoadState('networkidle', { timeout: 10000 });
+        } catch (e) { }
+        await page.waitForTimeout(10000);
         update('S05', `Editor confirmed (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
 
         // Tutorial Bypass (Aggressive)
