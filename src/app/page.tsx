@@ -1034,118 +1034,7 @@ export default function Home() {
     setPostLogs(prev => [...prev, { text: "[STOP] ユーザーにより停止されました", time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
   };
 
-  const NotePostConsole = () => {
-    if (postStatus === 'idle') return null;
-    return (
-      <div className="mt-8 rounded-3xl bg-neutral-900/50 border border-white/5 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="bg-orange-500/10 p-3 rounded-2xl">
-              <Pen size={20} className="text-orange-500 animate-bounce" />
-            </div>
-            <div>
-              <h3 className="text-lg font-black text-white leading-none mb-1">AIエージェント解析</h3>
-              <p className="text-xs text-white/40 font-mono italic">経過時間: {elapsedTime}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {postStatus === 'posting' && (
-              <button
-                onClick={handleStop}
-                className="flex items-center gap-1.5 text-[10px] font-bold text-red-100 hover:text-white bg-red-500 hover:bg-red-600 px-4 py-2 rounded-full transition-all scale-active shadow-lg shadow-red-500/20"
-              >
-                <X size={12} className="font-black" />
-                停止
-              </button>
-            )}
-            {(postStatus === 'error' || postStatus === 'success') && (
-              <button
-                onClick={() => {
-                  setPostStatus('idle');
-                  setPostLogs([]);
-                  setErrorScreenshot(null);
-                  sessionStorage.clear();
-                }}
-                className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-all"
-              >
-                <RotateCcw size={12} />
-                ログをクリアして再試行
-              </button>
-            )}
-            <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
-              <div className={`w-1.5 h-1.5 rounded-full ${postStatus === 'posting' ? 'bg-orange-500 animate-pulse' : postStatus === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
-                {postStatus === 'posting' ? 'Processing...' : postStatus === 'success' ? 'Finished' : 'Failed'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-white/40">
-              <Terminal size={16} />
-              <span className="text-[11px] font-black uppercase tracking-widest">診断・処理ログ</span>
-            </div>
-            {postStatus === 'error' && (
-              <span className="text-[9px] text-orange-500/80 animate-pulse">※詳細はコンソールを確認してください</span>
-            )}
-          </div>
-          <div
-            ref={logContainerRef}
-            className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 min-h-[200px] max-h-[800px] overflow-y-auto font-mono text-[11px] scrollbar-thin flex flex-col"
-          >
-            {postStatus === 'posting' && (
-              <div className="flex gap-4 animate-pulse pb-2 mb-2 border-b border-white/5">
-                <span className="text-white/10 shrink-0">Now</span>
-                <span className="text-orange-500/80 font-bold italic">AIエージェントが次のアクションを準備中...</span>
-              </div>
-            )}
-            {[...postLogs].reverse().map((log, i) => {
-              const isLatest = i === 0;
-              return (
-                <div key={i} className={`flex gap-4 group animate-in slide-in-from-top-2 duration-300 ${isLatest ? 'bg-white/5 -mx-2 px-2 py-1 rounded-lg border-l-2 border-orange-500' : ''}`}>
-                  <span className={`transition-colors whitespace-nowrap ${isLatest ? 'text-white/40' : 'text-white/10'}`}>{log.time}</span>
-                  <span className={`
-                    ${log.text.includes('[START]') ? 'text-orange-400 font-bold' : ''}
-                    ${log.text.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
-                    ${log.text.includes('[ERROR]') ? 'text-red-400' : isLatest ? 'text-white font-bold' : 'text-white/60'}
-                  `}>
-                    {log.text.replace(/\[.*\]\s*/, '')}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {errorScreenshot && (
-            <div className="mt-4 animate-in fade-in zoom-in duration-500">
-              <div className="flex items-center gap-2 mb-2 text-red-400">
-                <AlertCircle size={14} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Failure Evidence (Mode 3 Diagnostic)</span>
-              </div>
-              <div className="rounded-2xl border border-red-500/20 overflow-hidden bg-black shadow-2xl">
-                <img src={errorScreenshot} alt="Failure Screenshot" className="w-full h-auto opacity-80 hover:opacity-100 transition-opacity" />
-              </div>
-              <p className="mt-2 text-[9px] text-white/30 text-right italic">※サーバー上のブラウザが停止した瞬間のキャプチャです</p>
-            </div>
-          )}
-        </div>
-
-        {postStatus === 'success' && (
-          <div className="px-6 py-4 bg-green-500/10 border-t border-green-500/20 flex items-center justify-center">
-            <a
-              href={notePostConsoleUrl || "#"}
-              target="_blank"
-              className="flex items-center gap-2 text-xs font-black text-green-400 hover:text-green-300 transition-colors"
-            >
-              作成された下書きURLを開く <ExternalLink size={14} />
-            </a>
-          </div>
-        )}
-      </div>
-    );
-  };
+  // Note Credentials
 
   // Note Credentials
   const [noteEmail, setNoteEmail] = useState("");
@@ -1421,6 +1310,7 @@ export default function Home() {
             if (data.error) {
               setPostStatus("error");
               setPostLogs(prev => [...prev, { text: `[ERROR] ${data.error}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+              reader.cancel();
               break;
             }
 
@@ -1428,7 +1318,8 @@ export default function Home() {
               const base = data.last_step;
               setPostLogs(prev => {
                 if (!prev.find(p => p.text === base)) {
-                  return [...prev, { text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }];
+                  const now = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+                  return [...prev, { text: base, time: now }];
                 }
                 return prev;
               });
@@ -1437,8 +1328,12 @@ export default function Home() {
             if (data.status === 'success') {
               setPostStatus("success");
               if (data.note_url) setNotePostConsoleUrl(data.note_url);
+              reader.cancel();
+              break;
             } else if (data.status === 'failed') {
               setPostStatus("error");
+              reader.cancel();
+              break;
             }
           } catch (e) {
             console.error("Parse error in stream:", e);
@@ -2167,7 +2062,115 @@ export default function Home() {
                 </div>
 
                 {/* Job Console Area */}
-                <NotePostConsole />
+                {postStatus !== 'idle' && (
+                  <div className="mt-8 rounded-3xl bg-neutral-900/50 border border-white/5 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-orange-500/10 p-3 rounded-2xl">
+                          <Pen size={20} className="text-orange-500 animate-bounce" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black text-white leading-none mb-1">AIエージェント解析</h3>
+                          <p className="text-xs text-white/40 font-mono italic">経過時間: {elapsedTime}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {postStatus === 'posting' && (
+                          <button
+                            onClick={handleStop}
+                            className="flex items-center gap-1.5 text-[10px] font-bold text-red-100 hover:text-white bg-red-500 hover:bg-red-600 px-4 py-2 rounded-full transition-all scale-active shadow-lg shadow-red-500/20"
+                          >
+                            <X size={12} className="font-black" />
+                            停止
+                          </button>
+                        )}
+                        {(postStatus === 'error' || postStatus === 'success') && (
+                          <button
+                            onClick={() => {
+                              setPostStatus('idle');
+                              setPostLogs([]);
+                              setErrorScreenshot(null);
+                              sessionStorage.clear();
+                            }}
+                            className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-all"
+                          >
+                            <RotateCcw size={12} />
+                            ログをクリアして再試行
+                          </button>
+                        )}
+                        <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full">
+                          <div className={`w-1.5 h-1.5 rounded-full ${postStatus === 'posting' ? 'bg-orange-500 animate-pulse' : postStatus === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                          <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
+                            {postStatus === 'posting' ? 'Processing...' : postStatus === 'success' ? 'Finished' : 'Failed'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-white/40">
+                          <Terminal size={16} />
+                          <span className="text-[11px] font-black uppercase tracking-widest">診断・処理ログ</span>
+                        </div>
+                        {postStatus === 'error' && (
+                          <span className="text-[9px] text-orange-500/80 animate-pulse">※詳細はコンソールを確認してください</span>
+                        )}
+                      </div>
+                      <div
+                        ref={logContainerRef}
+                        className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 min-h-[200px] max-h-[800px] overflow-y-auto font-mono text-[11px] scrollbar-thin flex flex-col"
+                      >
+                        {postStatus === 'posting' && (
+                          <div className="flex gap-4 animate-pulse pb-2 mb-2 border-b border-white/5">
+                            <span className="text-white/10 shrink-0">Now</span>
+                            <span className="text-orange-500/80 font-bold italic">AIエージェントが次のアクションを準備中...</span>
+                          </div>
+                        )}
+                        {[...postLogs].reverse().map((log, i) => {
+                          const isLatest = i === 0;
+                          return (
+                            <div key={i} className={`flex gap-4 group animate-in slide-in-from-top-2 duration-300 ${isLatest ? 'bg-white/5 -mx-2 px-2 py-1 rounded-lg border-l-2 border-orange-500' : ''}`}>
+                              <span className={`transition-colors whitespace-nowrap ${isLatest ? 'text-white/40' : 'text-white/10'}`}>{log.time}</span>
+                              <span className={`
+                                ${log.text.includes('[START]') ? 'text-orange-400 font-bold' : ''}
+                                ${log.text.includes('[SUCCESS]') ? 'text-green-400 font-bold' : ''}
+                                ${log.text.includes('[ERROR]') ? 'text-red-400' : isLatest ? 'text-white font-bold' : 'text-white/60'}
+                              `}>
+                                {log.text.replace(/\[.*\]\s*/, '')}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {errorScreenshot && (
+                        <div className="mt-4 animate-in fade-in zoom-in duration-500">
+                          <div className="flex items-center gap-2 mb-2 text-red-400">
+                            <AlertCircle size={14} />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Failure Evidence (Mode 3 Diagnostic)</span>
+                          </div>
+                          <div className="rounded-2xl border border-red-500/20 overflow-hidden bg-black shadow-2xl">
+                            <img src={errorScreenshot} alt="Failure Screenshot" className="w-full h-auto opacity-80 hover:opacity-100 transition-opacity" />
+                          </div>
+                          <p className="mt-2 text-[9px] text-white/30 text-right italic">※サーバー上のブラウザが停止した瞬間のキャプチャです</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {postStatus === 'success' && (
+                      <div className="px-6 py-4 bg-green-500/10 border-t border-green-500/20 flex items-center justify-center">
+                        <a
+                          href={notePostConsoleUrl || "#"}
+                          target="_blank"
+                          className="flex items-center gap-2 text-xs font-black text-green-400 hover:text-green-300 transition-colors"
+                        >
+                          作成された下書きURLを開く <ExternalLink size={14} />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="pt-6 border-t border-white/5">
                   <div className="flex items-center justify-between mb-6">

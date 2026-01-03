@@ -263,48 +263,44 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         // Human Action: Editor Entry
-        update('S04', 'Entering Editor Entry Point...');
-        // Step 1: Try the standard creation entry point
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { });
+        update('S04', 'Opening Editor Creation Page...');
+        // Initial goto - using domcontentloaded for speed
+        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => { });
 
         let redirectSuccess = false;
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 15; i++) {
             const currentUrl = page.url();
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
 
             // SUCCESS CONDITION: URL has a note ID (n...) and is in edit mode
-            const hasNoteId = /\/n[a-z0-9]+\/edit/.test(currentUrl);
-            const isEditorSubdomain = currentUrl.includes('editor.note.com');
+            const isEditUrl = /\/n[a-z0-9]+\/edit/.test(currentUrl) || currentUrl.includes('editor.note.com');
+            const hasStartedHydration = tagCount > 60; // Lower threshold to detect early SPA start
 
-            if ((hasNoteId || isEditorSubdomain) && tagCount > 80 && !currentUrl.endsWith('/new')) {
-                update('S04', `Editor ID Acquired: ${currentUrl.substring(currentUrl.lastIndexOf('/') - 15)} (${tagCount} tags)`);
+            if (isEditUrl && hasStartedHydration && !currentUrl.endsWith('/new')) {
+                update('S04', `Editor Detected: ID successfully issued.`);
                 redirectSuccess = true;
                 break;
             }
 
-            update('S04', `Wait (${i + 1}/12) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 25)}`);
+            // Descriptive logs to reassure the user
+            const progress = i < 5 ? "Initializing..." : i < 10 ? "Acquiring Note ID..." : "Waiting for SPA...";
+            update('S04', `Monitor Session (${i + 1}/15): ${progress} (Tags: ${tagCount})`);
 
-            // Rescue 1: If stuck on home page
-            if (currentUrl === 'https://note.com/' || currentUrl.includes('note.com/?')) {
-                const postBtn = page.locator('.nc-header__post-button, button:has-text("投稿")').first();
-                if (await postBtn.isVisible()) {
-                    update('S04', 'Triggering Editor via button click...');
-                    await postBtn.click().catch(() => { });
-                } else if (i > 2) {
-                    update('S04', 'Attempting Alternative Entry (editor.note.com/new)...');
-                    await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-                }
+            // Rescue: Only if clearly stuck on home page after first few tries
+            if (i === 5 && (currentUrl === 'https://note.com/' || currentUrl.includes('note.com/?'))) {
+                update('S04', 'Home page detected. Re-triggering Editor entry...');
+                await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
 
-            // Rescue 2: If stuck on /new (White Screen / Skeleton)
-            if (currentUrl.endsWith('/new') && i > 3) {
-                if (i % 3 === 0) {
-                    update('S04', 'Still on /new. Pushing navigation again...');
-                    const nextEntry = i > 6 ? 'https://editor.note.com/new' : 'https://note.com/notes/new';
-                    await page.goto(nextEntry, { waitUntil: 'domcontentloaded' }).catch(() => { });
-                }
-                // Interaction to wake up SPA
-                await page.mouse.click(600, 400).catch(() => { });
+            // Refresh: If clearly stuck on /new for too long
+            if (currentUrl.endsWith('/new') && i === 10) {
+                update('S04', 'Stall detected. Forcing page refresh...');
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+            }
+
+            // Generic stimuli
+            if (i > 3 && tagCount < 100) {
+                await page.mouse.click(10, 10).catch(() => { });
             }
 
             await page.waitForTimeout(4000);
