@@ -211,21 +211,47 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 await page.goto('https://note.com/login', { waitUntil: 'load' });
             }
             if (content.email && content.password) {
-                await page.waitForSelector('input[type="email"], input[name="mail"], #email', { timeout: 10000 });
-                await page.fill('input[type="email"], input[name="mail"], #email', content.email);
-                await page.fill('input[type="password"], input[name="password"]', content.password);
+                update('S03', 'Entering credentials...');
+                // Wait for modern or legacy selectors
+                await page.waitForSelector('input#email, input[type="email"], #email', { timeout: 10000 });
+                await page.fill('input#email, input[type="email"], #email', content.email);
+                await page.fill('input#password, input[type="password"]', content.password);
 
-                const loginBtn = page.locator('button:has-text("ログイン"), button[type="submit"], .nc-login__submit-button').first();
-                await loginBtn.click();
+                await page.waitForTimeout(1000); // Wait for validation to settle
+
+                const loginBtn = page.locator('button.a-button[data-type="primaryNext"], button:has-text("ログイン"), button[type="submit"]').first();
+
+                update('S03', 'Executing login click (bypassing overlays)...');
+
+                // Remove potential blockers before clicking
+                await page.evaluate(() => {
+                    // Remove ultra-high z-index overlays or sticky headers that block clicks
+                    const blockers = Array.from(document.querySelectorAll('*')).filter(el => {
+                        const style = window.getComputedStyle(el);
+                        return (parseInt(style.zIndex) > 1000000) || el.classList.contains('o-navBar');
+                    });
+                    blockers.forEach(el => (el as HTMLElement).style.display = 'none');
+                }).catch(() => { });
+
+                // Try normal click first with force, then fallback to JS eval click
+                try {
+                    await loginBtn.click({ force: true, timeout: 5000 });
+                } catch (e) {
+                    update('S03', 'Normal click blocked. Using Ghost Execute.');
+                    await page.evaluate(() => {
+                        const btn = (Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('ログイン') || b.getAttribute('data-type') === 'primaryNext')) as HTMLElement;
+                        if (btn) btn.click();
+                    });
+                }
 
                 try {
                     await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 15000, waitUntil: 'load' });
                     update('S03', 'Login success. Stabilizing session...');
                     await page.waitForTimeout(8000);
                 } catch (e) {
-                    const errorText = await page.textContent('.nc-login__error, [role="alert"]').catch(() => null);
+                    const errorText = await page.textContent('.nc-login__error, [role="alert"], .a-errorText').catch(() => null);
                     if (errorText) throw new Error(`ログイン失敗: ${errorText.trim()}`);
-                    throw new Error("ログイン後の画面が開きませんでした。");
+                    throw new Error("ログイン後の画面が開きませんでした。認証情報を確認してください。");
                 }
 
                 const state = await context.storageState();
