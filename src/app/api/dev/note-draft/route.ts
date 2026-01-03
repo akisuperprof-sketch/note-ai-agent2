@@ -33,6 +33,7 @@ type NoteJob = {
     finished_at?: string;
 };
 
+// --- Infrastructure Utils ---
 function saveJob(job: NoteJob) {
     try {
         const dir = path.dirname(path.join(JOBS_DIR, `${job.job_id}.json`));
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
     });
 }
 
-// --- Logic Body ---
+// --- The Core Logic (Restored to Stable Baseline) ---
 async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string, visualDebug?: boolean, mode?: string }, onUpdate: (step: string) => void) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
@@ -127,77 +128,51 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
     update('S00', 'Precheck (安全性確認)');
     const settings = getDevSettings();
-    if (!settings.AUTO_POST_ENABLED) throw new Error("AUTO_POST_ENABLED is globally FALSE (Emergency Stop)");
+    if (!settings.AUTO_POST_ENABLED) throw new Error("AUTO_POST_ENABLED is globally FALSE");
 
     let browser: any;
     let page: any;
 
     try {
-        const VERSION = "2026-01-03-2244-S05-RECOVERY";
+        const VERSION = "2026-01-04-0500-STABLE-RESTORE";
         update('S01', `Browser Initialization [v:${VERSION}]`);
 
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
         const isHeadless = content.visualDebug ? false : !settings.VISUAL_DEBUG;
 
+        // 【復元】シンプルなブラウザ起動 (CORS干渉を避ける)
         if (isServerless) {
-            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 25000 });
+            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 20000 });
         } else {
-            browser = await chromium.launch({
-                headless: isHeadless,
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
-            });
+            browser = await chromium.launch({ headless: isHeadless, args: ['--no-sandbox'] });
         }
 
-        const profile = {
-            ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            w: 1440,
-            h: 900
-        };
-
-        // Full "Natural" Header set to avoid CORS/Security blocks
-        const contextOptions: any = {
-            userAgent: profile.ua,
-            viewport: { width: profile.w, height: profile.h },
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            viewport: { width: 1440, height: 900 },
             locale: 'ja-JP',
-            timezoneId: 'Asia/Tokyo',
-            extraHTTPHeaders: {
-                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-                'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"macOS"',
-            }
-        };
-
-        // Load Session WITH LocalStorage if exists
-        const hasSession = fs.existsSync(SESSION_FILE);
-        if (hasSession) {
-            contextOptions.storageState = SESSION_FILE;
-        }
-
-        const context = await browser.newContext(contextOptions);
-
-        // Advanced Stealth
-        await context.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            // @ts-ignore
-            window.chrome = { runtime: {} };
+            timezoneId: 'Asia/Tokyo'
         });
+
+        // 【復元】ステルス初期化
+        await context.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
+
+        // 【復元】セッション復元
+        if (fs.existsSync(SESSION_FILE)) {
+            const savedData = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+            if (savedData.cookies) await context.addCookies(savedData.cookies);
+        }
 
         page = await context.newPage();
-        page.on('console', (msg: any) => {
-            const txt = msg.text();
-            if (msg.type() === 'error' && !txt.includes('chrome-extension')) {
-                onUpdate(`[Browser Error] ${txt.substring(0, 80)}`);
-            }
-        });
+        page.on('console', (msg: any) => { if (msg.type() === 'error') onUpdate(`[Browser Error] ${msg.text().substring(0, 80)}`); });
         page.on('pageerror', (err: any) => onUpdate(`[SPA Crash] ${err.message.substring(0, 80)}`));
 
         await page.setDefaultTimeout(35000);
-        update('S02', 'Navigating to note.com Home');
+        update('S02', 'Navigating to note.com');
         await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
         await page.waitForTimeout(6000);
 
-        // Check Login State (StorageState might have handled it already)
+        // --- S03: Authentication ---
         const isGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], .nc-header__login-button'));
         if (isGuest || page.url().includes('/login')) {
             update('S03', 'Authentication Required. Logging in...');
@@ -205,31 +180,35 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             if (content.email && content.password) {
                 update('S03', 'Filling credentials...');
-                await page.waitForSelector('input#email', { timeout: 15000 });
+                await page.waitForSelector('input#email', { timeout: 10000 });
                 await page.fill('input#email', content.email);
                 await page.fill('input#password', content.password);
                 await page.click('button[type="submit"], button:has-text("ログイン")');
-                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 25000 });
+                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 15000 });
 
-                update('S03', 'Login success. Saving FULL session...');
+                update('S03', 'Login success. Saving session...');
                 const state = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(state));
                 await page.goto('https://note.com/', { waitUntil: 'load' });
                 await page.waitForTimeout(5000);
             } else {
-                throw new Error("Credentials missing in environment or UI");
+                throw new Error("Credentials missing");
             }
         }
 
-        // --- S04: Editor Entry Point ---
+        // --- S04: Editor Entry (Proven Workflow) ---
         update('S04', 'Triggering Editor Entry flow...');
         await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
         await page.waitForTimeout(6000);
 
-        // Modal Wipe on Home
+        // 【復元】邪魔なモーダルを強制的かつ丁寧に掃除
         await page.evaluate(() => {
+            const btnT = ['閉じる', 'close', 'スキップ', '×'];
+            document.querySelectorAll('button, div[role="button"]').forEach((el: any) => {
+                if (btnT.some(t => el.textContent?.includes(t) || el.getAttribute('aria-label')?.includes(t))) el.click();
+            });
             document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop').forEach(el => el.remove());
-            document.body.style.overflow = 'auto';
+            document.body.style.overflow = 'auto'; // スクロール不全を解消
         }).catch(() => { });
 
         const postBtnSelectors = ['.nc-header__post-button', 'button[aria-label="投稿"]', '.nc-header__create-button'].join(', ');
@@ -250,67 +229,64 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } catch (e) { }
 
         if (!entrySuccessful) {
-            update('S04', 'UI navigation blocked. Forcing direct /notes/new...');
+            update('S04', 'UI navigation failed. Forcing direct /notes/new...');
             await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
         }
 
-        // Monitoring for Note ID redirection & Hydration
+        // --- S04: Monitoring (Wait for Tags 300+) ---
         update('S04', 'Waiting for Editor Hydration...');
         let editorBound = false;
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 15; i++) {
             const url = page.url();
-            // Defensive tag counting
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0);
 
+            // 【復元】タグ数150以上を成功の基準とする
             if ((/\/n[a-z0-9]+\/edit/.test(url) || url.includes('editor.note.com')) && tagCount > 150 && !url.endsWith('/new')) {
                 update('S04', `Editor Connected (Tags: ${tagCount})`);
                 editorBound = true;
                 break;
             }
 
-            update('S04', `Step 04 Sync (${i + 1}/20): Tags=${tagCount}`);
+            update('S04', `Step 04 Sync (${i + 1}/15): Tags=${tagCount}`);
 
-            // Rescue logic for "Skeleton Stall" (Tags around 40)
-            if (i > 4 && tagCount < 100) {
-                if (i % 5 === 0) {
-                    update('S04', 'Stall detected. Hard Reloading...');
-                    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
-                } else if (i % 5 === 2) {
-                    update('S04', 'Trying Rescue Navigation...');
+            // 【進化】Tags=40等で固まった時だけピンポイント刺激
+            if (i > 3 && tagCount < 100) {
+                if (i % 4 === 0) {
+                    update('S04', 'Skeleton stall. Hard Resetting...');
                     await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 } else {
                     await page.mouse.click(720, 450).catch(() => { });
-                    await page.keyboard.press('Escape').catch(() => { });
+                    await page.keyboard.press('Escape'); // モーダルが裏で出てる可能性を潰す
                 }
             }
             await page.waitForTimeout(4000);
         }
 
-        if (!editorBound) throw new Error("Editor hydration timed out or blocked by CORS/Identity");
+        if (!editorBound) throw new Error("Editor hydration failed (Stayed at skeleton)");
 
-        // --- S05: Tutorial Bypass ---
+        // --- S05: Tutorial Bypass (Pure Recovery) ---
         update('S05', 'Ghost Bypass: Clearing Editor Tutorials');
         await page.waitForTimeout(4000);
         await page.evaluate(() => {
-            const skipTexts = ["次へ", "閉じる", "スキップ", "理解しました", "OK", "×"];
+            const skipT = ["次へ", "閉じる", "スキップ", "理解しました", "OK", "×"];
             document.querySelectorAll('button, div[role="button"], span, a').forEach((el: any) => {
                 const txt = (el.textContent || "").trim();
                 const aria = (el.getAttribute('aria-label') || "");
-                if (skipTexts.some(t => txt.includes(t) || aria.includes(t))) el.click();
+                if (skipT.some(t => txt.includes(t) || aria.includes(t))) el.click();
             });
             document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-modal-backdrop, .nc-popover').forEach(el => el.remove());
             document.body.style.overflow = 'auto';
         }).catch(() => { });
         await page.waitForTimeout(2000);
-        await page.mouse.click(1100, 100).catch(() => { }); // Click away
+        await page.mouse.click(1100, 100).catch(() => { }); // 欄外クリックで念押し
 
         // --- S06: Injection Analysis ---
         update('S06', 'Inspecting Editor Areas');
-        let editorResponsive = false;
+        let editorFound = false;
         for (let i = 0; i < 5; i++) {
             const hasEditor = await page.evaluate(() => !!document.querySelector('.ProseMirror, .note-editor, [contenteditable="true"]'));
             if (hasEditor) {
-                editorResponsive = true;
+                editorFound = true;
                 break;
             }
             update('S06', `Waiting for Editor mount (${i + 1}/5)`);
@@ -318,46 +294,41 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.waitForTimeout(4000);
         }
 
-        if (!editorResponsive) throw new Error("Editor areas fail to mount");
+        if (!editorFound) throw new Error("Editor areas not found");
 
-        // Ghost Injection Step
-        const targetSelectors = await page.evaluate(() => {
+        // --- S07~S10: Injection (The Ghost Way) ---
+        const selectors = await page.evaluate(() => {
             const title = document.querySelector('h1, textarea[placeholder*="タイトル"], input[placeholder*="タイトル"]');
             const body = document.querySelector('.ProseMirror, .note-editor__body, [contenteditable="true"]');
             return {
-                title: title ? (title.id ? `#${title.id}` : (title.className ? `.${title.className.split(' ')[0]}` : 'textarea')) : 'textarea',
+                title: title ? (title.id ? `#${title.id}` : 'textarea') : 'textarea',
                 body: body ? '.ProseMirror' : '.ProseMirror'
             };
         });
 
-        const injectInput = async (selector: string, text: string, type: 'title' | 'body') => {
-            const el = page.locator(selector).first();
+        const inject = async (sel: string, txt: string, isBody: boolean) => {
+            const el = page.locator(sel).first();
             await el.scrollIntoViewIfNeeded();
             await el.click();
             await page.waitForTimeout(1000);
-
-            const chunkLen = type === 'body' ? 120 : 25;
-            const chunks = text.match(new RegExp(`[\\s\\S]{1,${chunkLen}}`, 'g')) || [text];
-
+            const chunkLen = isBody ? 130 : 25;
+            const chunks = txt.match(new RegExp(`[\\s\\S]{1,${chunkLen}}`, 'g')) || [txt];
             for (const chunk of chunks) {
-                await page.evaluate(({ sel, txt }: { sel: string, txt: string }) => {
-                    const target = document.querySelector(sel) as any;
-                    if (target) {
-                        target.focus();
-                        document.execCommand('insertText', false, txt);
-                    }
-                }, { sel: selector, txt: chunk });
-                await page.waitForTimeout(300 + Math.random() * 400);
+                await page.evaluate(({ s, t }: { s: string, t: string }) => {
+                    const target = document.querySelector(s) as any;
+                    if (target) { target.focus(); document.execCommand('insertText', false, t); }
+                }, { s: sel, t: chunk });
+                await page.waitForTimeout(350 + Math.random() * 400);
             }
         };
 
         update('S07', 'Injecting Title...');
-        await injectInput(targetSelectors.title, content.title, 'title');
+        await inject(selectors.title, content.title, false);
         update('S08', 'Injecting Body...');
-        await injectInput(targetSelectors.body, content.body, 'body');
+        await inject(selectors.body, content.body, true);
 
         update('S10', 'Finalizing Draft Save');
-        await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1200, 50));
+        await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1240, 50));
         await page.waitForTimeout(6000);
 
         job.status = 'success';
@@ -369,9 +340,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await browser.close();
         return { status: 'success', note_url: job.note_url };
 
-    } catch (error: any) {
+    } catch (e: any) {
         job.status = 'failed';
-        job.error_message = error.message;
+        job.error_message = e.message;
         job.finished_at = new Date().toISOString();
         if (page) {
             const buf = await page.screenshot({ type: 'png' }).catch(() => null);
@@ -379,6 +350,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
         saveJob(job);
         if (browser) await browser.close();
-        throw error;
+        throw e;
     }
 }
