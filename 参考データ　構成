@@ -1,0 +1,75 @@
+noteエディタの技術構造
+
+noteの新エディタは2022年11月以降、旧MediumEditorベースからProseMirrorベースへ全面移行されており、フロントエンドはNext.js（React）で構築されています
+engineerteam.note.jp
+engineerteam.note.jp
+。つまり投稿画面はSPA（シングルページアプリ）となっており、ページ遷移直後はDOMが完全に揃っていません。本文用エリアは<div contenteditable="true" role="textbox">要素で、iframeではなくページ直下に描画されます
+qiita.com
+engineerteam.note.jp
+。
+
+検出失敗の主な原因と対策
+
+非同期レンダリング（遅延マウント）: React/ProseMirrorの初期化や外部スクリプトによりエディタ描画が遅れる場合、セレクタ検出前に要素が存在しないことがあります。対策として、page.waitForSelectorやpage.waitForLoadState('networkidle')を用いて十分に待機します
+qiita.com
+scrapfly.io
+。例えば、タイトル入力欄に対してtextarea[placeholder*="タイトル"]で待機したり
+qiita.com
+、画像アップロード後にwaitForLoadState('networkidle')で通信完了を確認するなどの手法があります
+qiita.com
+scrapfly.io
+。タイムアウトは長め（例:30秒以上）に設定し、固定の待機時間（waitForTimeout）やリトライロジックを挟むのも有効です。
+
+iframe内要素: 他サービスのエディタ（例: Medium.com等）では<iframe>内で本文編集することがありますが、noteの場合はiframeを使っていません。したがってPlaywrightのpage.frame()は不要で、通常のページコンテキストでdiv[contenteditable="true"]を直接操作します
+qiita.com
+engineerteam.note.jp
+。iframeであればframe.waitForSelectorやelementHandle.contentFrame()で待機しますが、noteでは不要と考えてよいでしょう。
+
+セレクタ不一致（動的クラス・属性）: エディタ内の要素はバージョンアップやランタイムでクラス名が変化しやすいため、クラス指定に頼ると壊れやすいです。代わりにプレースホルダー、ARIA属性、roleなど安定した属性を使います。例えば本文エリアにはrole="textbox"とcontenteditable="true"が付与されるので、div[contenteditable="true"][role="textbox"]で指定します
+qiita.com
+。タグ入力欄には「ハッシュタグ」用の入力フィールドがあり、通常はplaceholder*="ハッシュタグ"で見つかりますが、モバイルUIではrole="combobox"のみの場合もあります
+qiita.com
+。この例のように、「ハッシュタグ用入力」をまずinput[placeholder*="ハッシュタグ"]で探し、見つからなければinput[role="combobox"]にフォールバックする手法が有効です
+qiita.com
+。ページ中のテキストやボタンは:has-text("公開に進む")等で探せます。
+
+モバイル/PC UIの違い: モバイルビューではレイアウトや属性がPCと異なる場合があります。例えば、投稿画面がモバイルモードの場合、画面上部のツールバー配置やタグ入力UIが異なる可能性があります。ログに「Tags: 28」とあるのはおそらくタグUIを示しており、PCとモバイルでDOM構造が違うため正しい要素が見つからず失敗している可能性があります。対策としては、必要に応じてモバイル用ビューポート（page.setViewportSize）やUA指定を行い、各環境に応じたセレクタを用意します。上記のように複数候補（placeholder／aria／role等）を試すか、page.waitForSelectorでいずれかが表示されるまで待機する処理が考えられます
+qiita.com
+qiita.com
+。
+
+サードパーティスクリプトや初期化遅延: エディタや依存スクリプトの読み込みが遅いと、要素出現が遅延します。waitForLoadState('networkidle')でバックグラウンド通信が落ち着くのを待つほか、page.waitForTimeoutで余裕を持たせることが有効です
+scrapfly.io
+qiita.com
+。さらに高度な対策として、MutationObserverをページ内に埋め込み、DOM挿入イベントでエディタ起動を検知する方法もあります。これにより要素が出現した瞬間に処理を始められます。
+
+安定化の工夫
+
+長めの待機とネットワークアイドル検出: page.setDefaultTimeoutで全体待機時間を拡張し、重要な操作後はwaitForLoadState('networkidle')を組み合わせて処理を進めます
+scrapfly.io
+qiita.com
+。これによりエディタ読み込みや通信処理が完了してから次の操作に進むため失敗を減らせます。
+
+明示的リトライ／再試行: 要素が見つからなかった場合にページ全体をリロードしたり、数秒後に再度waitForSelectorで探し直すループを組むことで、一時的なタイミングずれを吸収できます。
+
+ビジビリティチェック: locator.waitFor({ state: 'visible' })やexpect(locator).toBeVisible()などで実際に要素が表示されるまで待つと確実です。Qiita例でもセレクタ取得後にwaitFor({ state: 'visible' })を入れています
+qiita.com
+。
+
+ログ・スクリーンショット取得: タイムアウト時に画面キャプチャやエラーログを残し、DOM構造や表示状況を確認します。これにより原因究明が容易になります。
+
+以上のように、noteエディタはReact/ProseMirrorベースの動的コンポーネントであるため、要素の遅延描画とUI切り替えに注意し、適切な待機戦略と堅牢なセレクタ指定で自動操作を組む必要があります
+engineerteam.note.jp
+qiita.com
+。
+
+参考資料: note公式エンジニアブログ
+engineerteam.note.jp
+engineerteam.note.jp
+、Playwright自動投稿サンプル
+qiita.com
+qiita.com
+qiita.com
+、およびPlaywright待機に関する解説
+scrapfly.io
+など。

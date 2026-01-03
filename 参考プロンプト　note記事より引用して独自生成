@@ -1,0 +1,229 @@
+目的
+既存アプリ https://note-ai-agent2.vercel.app/
+ に、モード分離を前提とした note 下書き自動投稿機能（実行）を安全に追加する。
+将来の予約投稿（時間指定）は段階解禁し、事故ゼロ最優先で拡張する。
+
+前提
+・投稿先は note 固定
+・noteには公式投稿APIがないため、UI操作を自動化する（Playwright推奨）
+・現段階は下書き保存のみ実行、公開投稿は禁止
+・セキュリティ、安全性、復旧性、ループ回避を最優先
+・本番モードではnoteアクセス自体を禁止（機能分離は条件分岐だけでなくルート分離）
+
+────────────────────
+【A. モード仕様（最上位）】
+────────────────────
+
+モードは2種
+
+production（通常本番モード）
+・デフォルトは必ずproduction
+・記事生成のみ（現状維持）
+・noteアクセス、投稿API、Playwright実行は完全禁止
+・本番データのみ使用
+
+development（開発モード）
+・自動投稿機能を含む検証モード
+・noteへの下書き保存のみ許可（リアル実行）
+・公開投稿は禁止（allow_publish=false 固定）
+・将来の予約投稿は段階解禁フラグがtrueの時だけ実行
+
+UI
+・画面上部か設定エリアに「開発モード ON/OFF」トグル
+・OFF=production、ON=development
+・development時は常時警告表示「開発モード中：note下書き自動投稿が有効になり得ます」
+・development時のみ「下書き保存テスト実行」ボタン表示（最新生成記事を対象）
+・緊急停止ボタン（development_auto_post_enabled を false にする）
+
+内部フラグ
+・mode = "production" | "development" を最上位で保持し全処理で参照
+・サーバー側でも mode を検証して、フロント改ざんを防ぐ
+
+────────────────────
+【B. 追加API（開発専用）】
+────────────────────
+
+ルート分離（必須）
+・/api/dev/note-draft は development のときだけ有効
+・production からの呼び出しは必ず 403
+・外部から叩けないように認証（HMAC署名 or 固定トークン）を必須化
+・同一プロジェクト内の内部呼び出しを基本にする
+
+API: POST /api/dev/note-draft
+入力
+・article_id（必須、UUID推奨）
+・request_id（必須、冪等性キー。毎回ユニーク）
+・title（必須）
+・body（必須。形式はプレーンテキストかHTMLのどちらかに固定して統一）
+・tags（任意、最大5）
+・scheduled_at（任意、今は保存のみでもよい。段階解禁後に実行）
+
+出力
+・status（success/failed/skipped）
+・article_id / request_id
+・note_draft_url（取得できたら）
+・error_code / error_message（失敗時）
+
+────────────────────
+【C. ジョブ管理（暴走・二重投稿防止の中核）】
+────────────────────
+
+永続ストレージ必須（DB推奨）
+テーブル例：note_post_jobs
+
+フィールド
+・job_id（PK）
+・article_id（unique）
+・request_id（unique）
+・mode（production/development）
+・status（pending/running/success/failed/skipped）
+・attempt_count（int、現段階は常に1）
+・created_at / started_at / finished_at
+・posted_at（成功時にセット）
+・note_url（下書きURLが取れれば）
+・error_code / error_message
+・last_step（どこで止まったか）
+・lock_expires_at（ロック期限、同時実行防止）
+
+冪等性ルール
+・同一 article_id は1回しか成功できない
+・同一 request_id は2回実行しない
+・status=running のジョブは新規開始しない
+・短時間連続を抑止（例：min_interval_seconds を設ける）
+
+自動リトライ禁止（現段階）
+・failed は自動再実行しない
+・再実行は管理UIの「手動再実行」からのみ
+・手動再実行時は必ず新しい request_id を発行
+
+────────────────────
+【D. Playwrightによる note 下書き保存（リアル実行）】
+────────────────────
+
+実行条件（開発モードだけ）
+・mode===development
+・development_auto_post_enabled===true
+・allow_publish===false（固定）
+・article_id未投稿（posted_atがnull）
+・request_id未使用
+・1分以内の連続起動を抑止（設定で調整）
+
+認証（推奨）
+・Playwright storageState方式
+・手動ログインで取得した storageState JSON を secrets として保管
+・実行時に newContext({ storageState }) で復元
+・期限切れは failed で停止（自動ログインは禁止）
+
+要素検出の原則（壊れにくさ優先）
+・ボタンは表示テキストで検出（例：下書き保存、保存）
+・入力欄は placeholder/aria-label/role を優先
+・入力後は値検証（タイトルが反映されているか）
+・待機は networkidle + waitForSelector を併用
+
+ステップ定義（last_stepに必ず保存）
+以下の順序を固定し、飛ばさない
+
+step_id	step_name	成功条件	失敗時
+S00	precheck	安全柵OK、DBをrunningへ	failed即停止
+S01	load_session	storageState読込成功	failed即停止
+S02	open_editor	note編集画面表示	failed即停止
+S03	verify_login	ログイン済み判定OK	failed即停止
+S04	fill_title	タイトル入力反映	failed即停止
+S05	fill_body	本文入力反映	failed即停止
+S06	fill_tags	タグ入力反映（任意）	failed即停止
+S07	click_draft_save	下書き保存押下	failed即停止
+S08	confirm_saved	保存完了表示検知（例：保存しました）	failed即停止
+S09	capture_result	URL等が取れれば保存、DB更新	failed即停止
+S10	finalize	status=success、posted_atセット	-
+
+失敗時の証跡（必須）
+・スクリーンショット（step_fail.png）
+・HTMLスナップショット（page.content）
+・consoleログ
+・error_code / error_message / last_step
+・status=failed に確定
+
+成功判定（推奨2段階）
+・段階1：保存完了表示の検知
+・段階2：可能なら下書きURL/編集URLを取得してnote_urlに保存（取れなければ段階1でOK）
+
+────────────────────
+【E. 予約投稿（時間指定）の段階解禁設計】
+────────────────────
+
+段階1（今）
+・scheduled_at は保存できる
+・自動実行しない（動かないのが正）
+・下書き保存は「生成直後」または「手動実行ボタン」で実行
+
+段階2（予約実行を解禁：下書きのみ）
+・development_schedule_enabled=true になった時だけ
+・cronが定期で scheduled_at<=now の pending を拾う
+・1件ずつロックして実行（同時実行しない）
+・自動リトライはしない（失敗は通知・手動対応）
+
+段階3（公開解禁）
+・今回スコープ外
+・allow_publish は常に false 固定
+・公開ボタンを押すコードは実装しない（物理的に排除）
+
+予約系フラグ（環境変数orDB設定）
+
+フラグ名	型	デフォルト	意味
+development_auto_post_enabled	bool	false	開発モードでも自動投稿を許可
+development_schedule_enabled	bool	false	予約実行を許可（下書きのみ）
+allow_publish	bool	false	公開を許可（常にfalse）
+require_manual_approve_for_schedule	bool	true	予約は人間承認必須
+max_jobs_per_day	int	5	1日の最大ジョブ数
+min_interval_seconds	int	300	連投防止間隔
+
+人間承認フロー（必須）
+・scheduled_atを設定しただけでは実行対象にしない
+・ユーザーが「承認」ボタンを押して pending に遷移
+・承認後のscheduled_at変更は一度キャンセル→再承認
+
+スケジューラ（段階2で導入）
+・cronで「承認済み pending かつ scheduled_at<=now」を取得
+・lock_expires_at を now+10分 にしてロック
+・running にして実行
+・success/failedで確定
+・lock_expires_at が切れた running は自動再実行しない（人間判断）
+
+────────────────────
+【F. セキュリティ原則（必須）】
+────────────────────
+
+・note認証情報はコードに含めない
+・secrets/環境変数のみで管理
+・storageStateファイルは暗号化保管 or secrets扱い
+・/api/dev/note-draft には署名トークン等の認証必須
+・productionはnote関連ルート自体を無効化/非デプロイ（可能なら）
+・ログに認証情報を出さない
+・アクセス頻度を抑制（過度な連続投稿を構造で防ぐ）
+
+────────────────────
+【G. 管理UI（最低限）】
+────────────────────
+
+開発モード時のみ
+・ジョブ履歴一覧（status、時刻、last_step、note_url、error）
+・緊急停止トグル（development_auto_post_enabled=false）
+・手動再実行（新request_id必須）
+・予約承認（require_manual_approve_for_schedule=true 前提）
+
+────────────────────
+【H. 実装方針】
+────────────────────
+
+・既存機能（記事生成）は変更を最小限にして壊さない
+・モード分離を最優先（ルーティングも分離）
+・下書き保存の実行は開発モードのみ
+・公開投稿は禁止（allow_publish=false固定、コード排除）
+・自動リトライ禁止、失敗は証跡保存と人間判断
+・冪等性とロックで二重投稿・ループを構造的に防ぐ
+
+アウトプット要件
+・必要なUI変更、API、DB、Playwright処理、ログ、フラグを一括で実装
+・適切なエラーメッセージとステータスを画面に表示
+・コードは読みやすく、ステップログを必ず残す
+・本番安全を絶対に破らない
