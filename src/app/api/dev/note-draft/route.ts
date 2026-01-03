@@ -102,52 +102,56 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     const update = async (stepId: string, stepName: string) => {
-        let urlInfo = "";
+        let debug = "";
         if (page) {
             try {
                 const u = page.url();
-                urlInfo = u && u !== 'about:blank' ? ` [URL:${u.substring(u.length - 35)}]` : " [URL:Loading...]";
-            } catch (e) { urlInfo = " [URL:Pending]"; }
+                const uShort = u && u !== 'about:blank' ? u.substring(Math.max(0, u.length - 40)) : "LOADING";
+                debug = ` >>> URL[...${uShort}]`;
+            } catch (e) { debug = " >>> URL[UNAVAILABLE]"; }
         }
-        const fullStep = `${stepId}: ${stepName}${urlInfo}`;
+        // フロントエンドの分割処理を避けるためコロンを避ける
+        const fullStep = `${stepId} - ${stepName}${debug}`;
         job.last_step = fullStep;
         saveJob(job);
         onUpdate(fullStep);
     };
 
     try {
-        const VERSION = "2026-01-04-0700-FINAL-STEALTH-SYNC";
+        const VERSION = "2026-01-04-0715-ULTIMATE-RECOVERY";
         await update('S01', `Engine v${VERSION}`);
 
-        const settings = getDevSettings();
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
-        const isHeadless = content.visualDebug ? false : !settings.VISUAL_DEBUG;
-
         if (isServerless) {
-            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 30000 });
+            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
         } else {
-            browser = await chromium.launch({ headless: isHeadless, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
+            browser = await chromium.launch({ headless: !content.visualDebug, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
         }
 
         const contextOptions: any = {
             userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             viewport: { width: 1440, height: 900 },
-            locale: 'ja-JP', timezoneId: 'Asia/Tokyo'
+            locale: 'ja-JP', timezoneId: 'Asia/Tokyo',
+            deviceScaleFactor: 2
         };
 
         if (fs.existsSync(SESSION_FILE)) contextOptions.storageState = SESSION_FILE;
 
         const context = await browser.newContext(contextOptions);
 
-        // Stealth Injection
-        await context.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        });
+        const injectStealth = async (p: any) => {
+            await p.addInitScript(() => {
+                Object.defineProperty(navigator, 'webdriver', { get: () => false });
+                Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            });
+        };
 
         page = await context.newPage();
+        await injectStealth(page);
         await page.setDefaultTimeout(40000);
 
-        await update('S02', 'Navigating to note.com');
+        await update('S02', 'Approaching note.com');
         await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
         await page.waitForTimeout(3000);
 
@@ -155,72 +159,73 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         const loginCheck = await page.evaluate(() => !!document.querySelector('.nc-header__user-menu, .nc-header__profile, .nc-header__post-button'));
 
         if (!loginCheck || page.url().includes('/login')) {
-            await update('S03', 'Authentication Required');
+            await update('S03', 'Auth Needed');
             if (!page.url().includes('/login')) await page.goto('https://note.com/login', { waitUntil: 'networkidle' });
 
             if (content.email && content.password) {
                 await page.fill('input#email', content.email);
                 await page.fill('input#password', content.password);
                 await page.click('button[data-type="primaryNext"], button:has-text("ログイン")');
-                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 30000 });
-                await page.waitForTimeout(4000); // ログイン後のセッション安定待ち
+                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 35000 });
+                await page.waitForTimeout(5000);
 
                 const fullState = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(fullState));
-                await update('S03', 'Login Successful');
-            } else { throw new Error("Credentials required"); }
+                await update('S03', 'Session Verified');
+            } else { throw new Error("Credentials missing"); }
         }
 
         // --- S04: Editor Entry (The Critical Bridge) ---
-        await update('S04', 'Directing to Editor...');
-        // 手順書の「投稿ボタン」も試すが、失敗を見越して goto に 30s タイムアウトを設定
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => { });
+        await update('S04', 'Navigating to Editor...');
+        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
 
         let hydrated = false;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 12; i++) {
             const stats = await page.evaluate(() => {
                 return {
                     tags: document.querySelectorAll('*').length,
-                    hasEditor: !!document.querySelector('.ProseMirror'),
-                    url: window.location.href
+                    hasEditor: !!document.querySelector('.ProseMirror')
                 };
-            }).catch(() => ({ tags: 0, hasEditor: false, url: '' }));
+            }).catch(() => ({ tags: 0, hasEditor: false }));
 
-            await update('S04', `Sync ${i + 1}/10: [Tags:${stats.tags}]`);
+            await update('S04', `Sync ${i + 1}/12 - Tags[${stats.tags}]`);
 
-            if (stats.tags > 180 && stats.hasEditor) {
-                await update('S04', 'Hydration Confirmed');
+            if (stats.tags > 200 && stats.hasEditor) {
+                await update('S04', 'Hydration OK');
                 hydrated = true;
                 break;
             }
 
+            // 【究極救済】Tagsが極端に低い状況が続いたらタブを破壊して再構築
             if (stats.tags < 100) {
-                if (i === 3) {
-                    await update('S04', 'Attempting Force Jump...');
-                    await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
-                } else if (i % 2 === 0) {
-                    await page.mouse.click(720, 10).catch(() => { }); // ヘッダー付近をクリックして刺激
+                if (i === 3 || i === 7) {
+                    await update('S04', 'CRITICAL - Re-creating Page Tab...');
+                    await page.close().catch(() => { });
+                    page = await context.newPage();
+                    await injectStealth(page);
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                } else {
+                    await page.mouse.click(720, 10).catch(() => { });
                     await page.keyboard.press('Escape').catch(() => { });
                 }
             }
-            await page.waitForTimeout(4000);
+            await page.waitForTimeout(5000);
         }
 
-        if (!hydrated) throw new Error("Editor hydration failed. Stuck in skeleton state.");
+        if (!hydrated) throw new Error(`Editor hydration failed (Final Tags:${await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)})`);
 
         // --- S100: Final Content Injection ---
-        await update('S05', 'Clearing Overlays...');
+        await update('S05', 'Bypassing Overlays');
         await page.evaluate(() => {
             document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop, [class*="modal"]').forEach(el => el.remove());
         }).catch(() => { });
 
-        await update('S07', 'Injecting Content (insertHTML Strategy)');
+        await update('S07', 'Injecting Content');
         const html = mdToHtml(content.body);
 
         await page.evaluate(({ t, b }: { t: string, b: string }) => {
             const titleEl = document.querySelector('textarea[placeholder*="タイトル"]') as HTMLTextAreaElement;
             const bodyEl = document.querySelector('.ProseMirror') as HTMLElement;
-
             if (titleEl) {
                 titleEl.focus(); titleEl.value = '';
                 document.execCommand('insertText', false, t);
@@ -234,20 +239,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }, { t: content.title, b: html });
 
-        await update('S10', 'Finalizing Draft...');
+        await update('S10', 'Finalizing...');
         await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1240, 50));
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(6000);
 
         job.status = 'success'; job.note_url = page.url();
-        await update('S99', 'Note Created Successfully.');
+        await update('S99', 'Note Created!');
         saveJob(job);
         await browser.close();
         return { status: 'success', note_url: job.note_url };
 
     } catch (e: any) {
         job.status = 'failed';
-        const manualPrompt = "\n\n【自動投稿に失敗しました】\n下記URLより手動で下書き作成をお願いします。\nURL: https://note.com/notes/new";
-        job.error_message = e.message + manualPrompt;
+        job.error_message = e.message + "\n\n【自動投稿に失敗しました】\n下記URLより手動で下書き作成をお願いいたします。\nURL: https://note.com/notes/new";
         if (page) {
             const buf = await page.screenshot({ type: 'png' }).catch(() => null);
             if (buf) job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
