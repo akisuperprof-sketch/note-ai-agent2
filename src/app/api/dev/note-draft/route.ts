@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
             try {
                 const body = await req.json();
                 const { title, body: noteBody, tags, scheduled_at, mode, visualDebug, email, password, request_id, article_id } = body;
+                if (!validateDevMode(mode)) throw new Error(`Invalid mode: ${mode}`);
+
                 const jobId = `job-${Date.now()}`;
                 const job: NoteJob = {
                     job_id: jobId, article_id: article_id || 'unknown', request_id: request_id || 'unknown',
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
                 };
                 saveJob(job);
                 sendUpdate(`Job Created: ${jobId}`);
+
                 const result = await runNoteDraftAction(job, {
                     title, body: noteBody, tags, scheduled_at,
                     email: email || process.env.NOTE_EMAIL,
@@ -64,8 +67,12 @@ export async function POST(req: NextRequest) {
                 }, sendUpdate);
                 controller.enqueue(encoder.encode(`${JSON.stringify({ status: 'success', job_id: jobId, note_url: result.note_url })}\n`));
             } catch (error: any) {
+                console.error("Action Error:", error);
                 controller.enqueue(encoder.encode(`${JSON.stringify({ error: error.message })}\n`));
-            } finally { clearInterval(heartbeat); controller.close(); }
+            } finally {
+                clearInterval(heartbeat);
+                controller.close();
+            }
         }
     });
     return new NextResponse(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' } });
@@ -82,12 +89,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1300-DEBUG-VISIBILITY";
+        const VERSION = "2026-01-04-1330-STABLE-STEALTH-PRO";
         const envName = isVercel ? "SERVER" : "LOCAL_MAC";
         await update('S01', `Engine v${VERSION} ENV ${envName}`);
 
         if (isVercel && BROWSERLESS_TOKEN) {
-            // Browserless Debugger URL をログに出す
+            // Browserless Debugger URL をログに出す（お客様がクラウドの画面を直接見れるように）
             const sessionUrl = `https://chrome.browserless.io/debugger?token=${BROWSERLESS_TOKEN}`;
             await update('S01', `VISUAL DEBUG URL ${sessionUrl}`);
             browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
@@ -101,8 +108,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         const contextOptions: any = {
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            viewport: { width: 1440, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo'
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            viewport: { width: 1440, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo',
+            deviceScaleFactor: 2
         };
         if (fs.existsSync(SESSION_FILE)) contextOptions.storageState = SESSION_FILE;
 
@@ -110,7 +118,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         const injectStealth = async (p: any) => {
             await p.addInitScript(() => {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
+                (window as any).chrome = { runtime: {} };
                 Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
             });
         };
 
@@ -119,70 +129,69 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         await update('S02', 'Approaching Note');
         await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(4000);
 
-        const loginCheck = await page.evaluate(() => !!document.querySelector('.nc-header__user-menu, .nc-header__profile, .nc-header__post-button'));
+        const loginCheck = await page.evaluate(() => {
+            return !!document.querySelector('.nc-header__user-menu, .nc-header__profile, .nc-header__post-button');
+        });
+
         if (!loginCheck) {
             await update('S03', 'Login Required');
             await page.goto('https://note.com/login', { waitUntil: 'networkidle' });
             if (content.email && content.password) {
-                // セレクターをより堅実に
                 const selectors = {
-                    email: 'input#email, input[name="email"], input[type="email"]',
-                    password: 'input#password, input[name="password"], input[type="password"]',
+                    email: 'input#email, input[name="email"]',
+                    password: 'input#password, input[name="password"]',
                     submit: 'button:has-text("ログイン"), button[type="submit"]'
                 };
-
-                await page.waitForSelector(selectors.email, { timeout: 15000 }).catch(() => {
-                    throw new Error("Login page failed to load correctly in this environment.");
-                });
-
+                await page.waitForSelector(selectors.email, { timeout: 15000 });
                 await page.fill(selectors.email, content.email);
                 await page.fill(selectors.password, content.password);
                 await page.click(selectors.submit);
-
-                // ログイン後の遷移を待つ（URLが変わるか、Profileが出るまで）
                 await Promise.race([
-                    page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 40000 }),
-                    page.waitForSelector('.nc-header__user-menu, .nc-header__profile', { timeout: 40000 })
+                    page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 35000 }),
+                    page.waitForSelector('.nc-header__user-menu, .nc-header__profile', { timeout: 35000 })
                 ]);
-
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(await context.storageState()));
                 await update('S03', 'Login Verified');
-            } else {
-                throw new Error("Credentials missing. Please set email/password.");
-            }
+            } else { throw new Error("Credentials missing."); }
         }
 
         // --- S04: Editor Entry ---
-        const EDITOR_URL = 'https://editor.note.com/new';
-        await update('S04', 'Direct to Editor');
-        await page.goto(EDITOR_URL, { waitUntil: 'domcontentloaded' }).catch(() => { });
+        // 直接URLではなく、note.com経由のリダイレクトURLを使うことでセッションを安定させる
+        const ENTRY_URL = 'https://note.com/notes/new';
+        await update('S04', 'Going to Editor');
+        await page.goto(ENTRY_URL, { waitUntil: 'domcontentloaded' }).catch(() => { });
 
         let hydrated = false;
         for (let i = 0; i < 15; i++) {
-            const currentUrl = page.url();
             const stats = await page.evaluate(() => {
-                return { tags: document.querySelectorAll('*').length, hasEditor: !!document.querySelector('.ProseMirror') };
-            }).catch(() => ({ tags: 0, hasEditor: false }));
+                const tags = document.querySelectorAll('*').length;
+                const body = document.body.innerText;
+                return {
+                    tags,
+                    hasEditor: !!document.querySelector('.ProseMirror'),
+                    isBlocked: body.includes('Access Denied') || body.includes('ロボットではありません')
+                };
+            }).catch(() => ({ tags: 0, hasEditor: false, isBlocked: false }));
 
-            await update('S04', `SYNC ${i + 1}/15 TAGS ${stats.tags}`);
+            await update('S04', `SYNC ${i + 1}/15 TAGS ${stats.tags}${stats.isBlocked ? ' BLOCKED' : ''}`);
 
-            if (stats.hasEditor && currentUrl.includes('editor.note.com')) {
+            if (stats.hasEditor) {
                 await update('S04', 'HYDRATION DONE');
                 hydrated = true; break;
             }
 
-            if (stats.tags <= 45 && (i === 5 || i === 11)) {
+            if (stats.isBlocked || (stats.tags <= 50 && (i === 4 || i === 9))) {
                 await update('S04', 'REBOOTING TAB');
                 await page.close().catch(() => { });
                 page = await context.newPage(); await injectStealth(page);
-                await page.goto(EDITOR_URL, { waitUntil: 'load' }).catch(() => { });
+                await page.goto(ENTRY_URL, { waitUntil: 'load' }).catch(() => { });
+                await page.waitForTimeout(3000);
             }
-            await page.mouse.move(Math.random() * 100, Math.random() * 100);
             await page.waitForTimeout(5000);
         }
-        if (!hydrated) throw new Error("Editor failed to hydrate. Possible IP block.");
+        if (!hydrated) throw new Error("Editor hydration failed. Please check VISUAL DEBUG URL and solve challenges if any.");
 
         await update('S07', 'Injecting Content');
         const html = mdToHtml(content.body);
@@ -190,15 +199,13 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             const titleEl = document.querySelector('textarea[placeholder*="タイトル"]') as any;
             const bodyEl = document.querySelector('.ProseMirror') as any;
             if (titleEl) {
-                titleEl.focus();
-                titleEl.value = ''; // 一旦クリア
+                titleEl.focus(); titleEl.value = '';
                 document.execCommand('insertText', false, t);
-                titleEl.dispatchEvent(new Event('input', { bubbles: true })); // Event発火
+                titleEl.dispatchEvent(new Event('input', { bubbles: true }));
             }
             if (bodyEl) {
                 bodyEl.focus();
-                document.execCommand('selectAll', false, undefined);
-                document.execCommand('delete', false, undefined);
+                document.execCommand('selectAll', false, undefined); document.execCommand('delete', false, undefined);
                 document.execCommand('insertHTML', false, b);
             }
         }, { t: content.title, b: html });
@@ -206,7 +213,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await update('S10', 'Saving');
         await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1240, 50));
         await page.waitForTimeout(6000);
-
         job.status = 'success'; job.note_url = page.url();
         await update('S99', 'Complete');
         saveJob(job); await browser.close(); return { status: 'success', note_url: job.note_url };
