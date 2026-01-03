@@ -82,7 +82,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-0930-ULTRA-STEALTH-HUMAN-IP";
+        const VERSION = "2026-01-04-1000-FIX-HOME-STALL";
         await update('S01', `Engine v${VERSION}`);
 
         // ローカル実行時はIP偽装のためBrowserlessを使わず、MacのGoogle Chromeを優先
@@ -159,17 +159,24 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         let hydrated = false;
         for (let i = 0; i < 15; i++) {
+            const currentUrl = page.url();
             const stats = await page.evaluate(() => {
                 return { tags: document.querySelectorAll('*').length, hasEditor: !!document.querySelector('.ProseMirror') };
             }).catch(() => ({ tags: 0, hasEditor: false }));
 
             await update('S04', `Sync ${i + 1}/15 Tags ${stats.tags}`);
-            if (stats.tags > 200 && stats.hasEditor) { hydrated = true; break; }
-            if (stats.tags <= 45 && (i === 4 || i === 9)) {
-                await update('S04', 'REBOOTING TAB');
-                await page.close().catch(() => { });
-                page = await context.newPage(); await injectStealth(page);
-                await page.goto('https://note.com/notes/new');
+
+            if (stats.hasEditor && currentUrl.includes('editor.note.com')) {
+                await update('S04', 'Hydration OK');
+                hydrated = true; break;
+            }
+
+            // 【救済】ホームページで固まっている、またはTagsが極端に低い場合
+            if (!currentUrl.includes('editor.note.com') || stats.tags <= 45) {
+                if (i === 3 || i === 8) {
+                    await update('S04', 'FORCE JUMP TO EDITOR');
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                }
             }
             await page.mouse.move(Math.random() * 100, Math.random() * 100);
             await page.waitForTimeout(5000);
