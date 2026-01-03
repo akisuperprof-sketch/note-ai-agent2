@@ -165,16 +165,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             if (savedData.cookies) {
                 await context.addCookies(savedData.cookies);
             }
-            if (savedData.origins) {
-                // Inject local storage if present
-                await context.addInitScript((data: any) => {
-                    data.origins.forEach((origin: any) => {
-                        origin.localStorage.forEach((item: any) => {
-                            window.localStorage.setItem(item.name, item.value);
-                        });
-                    });
-                }, savedData);
-            }
+            // Removed localStorage injection to minimize hydration risk
         }
 
         page = await context.newPage();
@@ -271,58 +262,56 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
-        // Human Action: Fast-track to Editor
-        if (!page.url().includes('editor.note.com')) {
-            update('S04', 'Navigating to Editor entry point...');
+        // Step S04: Editor Entry
+        update('S04', 'Navigating to Editor...');
+        // Try direct entry first
+        await page.goto('https://note.com/notes/new', { waitUntil: 'networkidle', timeout: 40000 }).catch(() => {
+            update('S04', 'Direct entry timeout. Continuing monitoring...');
+        });
 
-            // Bypass clicking the 'Post' button altogether to avoid campaign overlays
-            await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+        let redirectSuccess = false;
+        for (let i = 0; i < 11; i++) {
+            const currentUrl = page.url();
+            const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
 
-            update('S04', 'Monitoring Editor redirect...');
-            let redirectSuccess = false;
-            for (let i = 0; i < 9; i++) {
-                const currentUrl = page.url();
-                const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
-
-                // Conditions for being in the editor:
-                // Analysis: 40-50 tags usually means a skeleton page. 150+ means hydration started.
-                if ((currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) || currentUrl.includes('editor.note.com')) {
-                    if (tagCount > 120) {
-                        update('S04', `Editor Fully Loaded: ${tagCount} elements found.`);
-                        redirectSuccess = true;
-                        break;
-                    }
+            // Analysis: note.com SPA skeleton is ~40 tags. Fully hydrated is 150+.
+            if ((currentUrl.includes('editor.note.com') || currentUrl.includes('/notes/')) && !currentUrl.endsWith('/new')) {
+                if (tagCount > 150) {
+                    update('S04', `Editor Active: ${tagCount} elements.`);
+                    redirectSuccess = true;
+                    break;
                 }
-
-                // Diagnostic log
-                update('S04', `Wait (${i + 1}/9) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 15)}`);
-
-                // If stuck on skeleton (tagCount < 90), try to "wake up" the page by clicking
-                if (tagCount < 90 && i > 1) {
-                    await page.mouse.click(10, 10).catch(() => { });
-                }
-
-                // Rescue: Re-trigger navigation if stuck too long
-                if (i === 4 && tagCount < 100) {
-                    update('S04', 'Stall detected. Re-navigating to entry point...');
-                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
-                }
-
-                // Re-check for guest state (maybe login was lost)
-                const isGuest = await page.evaluate(() => {
-                    const loginBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('ログイン'));
-                    return !!document.querySelector('a[href*="/login"]') || !!loginBtn;
-                });
-                if (isGuest && i > 6) throw new Error("セッション消失。再ログインが必要です。");
-
-                await page.waitForTimeout(4000);
             }
 
-            if (!redirectSuccess) {
-                update('S04', 'Redirect timeout (proceeding anyway)');
+            // Fallback: If still on home page or stuck on home page redirect
+            if (currentUrl === 'https://note.com/' || currentUrl.includes('note.com/?')) {
+                const postBtn = page.locator('.nc-header__post-button, button:has-text("投稿")').first();
+                if (await postBtn.isVisible()) {
+                    update('S04', 'Clicking Post button on home page...');
+                    await postBtn.click().catch(() => { });
+                }
             }
-            await page.waitForTimeout(3000);
+
+            update('S04', `Wait (${i + 1}/11) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 20)}`);
+
+            // Rescue: If stuck on skeleton (white screen) for 4 cycles (~16s), force reload
+            if (i === 4 && tagCount < 75) {
+                update('S04', 'White screen (Skeleton) stall detected. Refreshing...');
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+            }
+
+            // Interaction to trigger hydration
+            if (i > 1 && tagCount < 110) {
+                await page.mouse.click(500, 300).catch(() => { });
+            }
+
+            await page.waitForTimeout(4000);
         }
+
+        if (!redirectSuccess) {
+            update('S04', 'Redirect timeout (proceeding anyway)');
+        }
+        await page.waitForTimeout(3000);
 
         update('S04', 'Waiting for Editor DOM...');
         try {
