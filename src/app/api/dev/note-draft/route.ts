@@ -113,7 +113,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-03-1935-FIX-SPA";
+        const VERSION = "2026-01-03-2100-SUPER-STEALTH";
         update('S01', `Load Session / Browser Init [v:${VERSION}]`);
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
         const settings = getDevSettings();
@@ -123,53 +123,57 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         } else {
             // Development Mode 3: Use headless: false if visualDebug is requested
             const isHeadless = content.visualDebug ? false : !settings.VISUAL_DEBUG;
-            browser = await playwright.launch({ headless: isHeadless });
+            browser = await playwright.launch({
+                headless: isHeadless,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
         }
 
-        const deviceProfiles = [
-            { name: 'iPhone', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', w: 390, h: 844 },
-            { name: 'Mac', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', w: 1280, h: 1000 }
-        ];
-        const profile = deviceProfiles[Math.floor(Math.random() * deviceProfiles.length)];
+        // Stick to a premium Desktop profile for the Editor
+        const profile = {
+            ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            w: 1440,
+            h: 900
+        };
 
         const context = await browser.newContext({
             userAgent: profile.ua,
             viewport: { width: profile.w, height: profile.h },
-            deviceScaleFactor: profile.name === 'Mac' ? 1 : 2,
-            isMobile: profile.name !== 'Mac',
-            hasTouch: profile.name !== 'Mac',
+            deviceScaleFactor: 1,
+            isMobile: false,
+            hasTouch: false,
             locale: 'ja-JP',
-            timezoneId: 'Asia/Tokyo'
+            timezoneId: 'Asia/Tokyo',
+            extraHTTPHeaders: {
+                'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+            }
         });
 
         // Super Stealth Injection
         await context.addInitScript(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            if (navigator.serviceWorker) {
-                navigator.serviceWorker.getRegistrations().then(regs => {
-                    for (let reg of regs) reg.unregister();
-                });
-            }
+            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja'] });
+            Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+            // Mock plugins
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
         });
 
         if (fs.existsSync(SESSION_FILE)) {
             const savedData = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
-            // Support both old cookie-only and new full-storage formats
             if (savedData.cookies) {
                 await context.addCookies(savedData.cookies);
-                if (savedData.origins) {
-                    // Inject local storage if present
-                    await context.addInitScript((data: any) => {
-                        data.origins.forEach((origin: any) => {
-                            origin.localStorage.forEach((item: any) => {
-                                window.localStorage.setItem(item.name, item.value);
-                            });
+            }
+            if (savedData.origins) {
+                // Inject local storage if present
+                await context.addInitScript((data: any) => {
+                    data.origins.forEach((origin: any) => {
+                        origin.localStorage.forEach((item: any) => {
+                            window.localStorage.setItem(item.name, item.value);
                         });
-                    }, savedData);
-                }
-            } else {
-                await context.addCookies(savedData);
+                    });
+                }, savedData);
             }
         }
 
@@ -276,23 +280,30 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             update('S04', 'Monitoring Editor redirect...');
             let redirectSuccess = false;
-            for (let i = 0; i < 8; i++) {
+            for (let i = 0; i < 9; i++) {
                 const currentUrl = page.url();
-                const title = await page.title();
                 const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
 
+                // Conditions for being in the editor:
+                // Analysis: 40-50 tags usually means a skeleton page. 150+ means hydration started.
                 if ((currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) || currentUrl.includes('editor.note.com')) {
-                    if (tagCount > 100) {
-                        update('S04', `Editor Detected: ${tagCount} tags`);
+                    if (tagCount > 120) {
+                        update('S04', `Editor Fully Loaded: ${tagCount} elements found.`);
                         redirectSuccess = true;
                         break;
                     }
                 }
 
                 // Diagnostic log
-                update('S04', `Wait (${i + 1}/8) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 15)}`);
+                update('S04', `Wait (${i + 1}/9) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 15)}`);
 
-                if (i === 4 && tagCount < 70) {
+                // If stuck on skeleton (tagCount < 90), try to "wake up" the page by clicking
+                if (tagCount < 90 && i > 1) {
+                    await page.mouse.click(10, 10).catch(() => { });
+                }
+
+                // Rescue: Re-trigger navigation if stuck too long
+                if (i === 4 && tagCount < 100) {
                     update('S04', 'Stall detected. Re-navigating to entry point...');
                     await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
                 }
@@ -302,7 +313,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     const loginBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('ログイン'));
                     return !!document.querySelector('a[href*="/login"]') || !!loginBtn;
                 });
-                if (isGuest && i > 5) throw new Error("セッション消失。再ログインが必要です。");
+                if (isGuest && i > 6) throw new Error("セッション消失。再ログインが必要です。");
 
                 await page.waitForTimeout(4000);
             }
@@ -425,13 +436,18 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 document.execCommand('selectAll', false, undefined);
                 document.execCommand('delete', false, undefined);
 
-                // Simple Markdown to HTML converter (compatible with Note's editor)
+                // Advanced Markdown to HTML converter (Note.com compatible)
                 const htmlLines = body.split('\n').map(line => {
-                    if (line.startsWith('## ')) return `<h2>${line.substring(3)}</h2>`;
-                    if (line.startsWith('# ')) return `<h1>${line.substring(2)}</h1>`;
-                    if (line.startsWith('> ')) return `<blockquote>${line.substring(2)}</blockquote>`;
+                    let processed = line
+                        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                        .replace(/\*(.*?)\*/g, '<i>$1</i>');
+
+                    if (line.startsWith('### ')) return `<h3>${processed.substring(4)}</h3>`;
+                    if (line.startsWith('## ')) return `<h2>${processed.substring(3)}</h2>`;
+                    if (line.startsWith('# ')) return `<h2>${processed.substring(2)}</h2>`; // Top headers to H2 for Note body
+                    if (line.startsWith('> ')) return `<blockquote>${processed.substring(2)}</blockquote>`;
                     if (line.trim() === '') return '<p><br></p>';
-                    return `<p>${line}</p>`;
+                    return `<p>${processed}</p>`;
                 });
                 const htmlContent = htmlLines.join('');
 
