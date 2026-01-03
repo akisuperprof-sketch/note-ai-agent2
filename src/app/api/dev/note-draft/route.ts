@@ -126,7 +126,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-04-0530-FINAL-RECOVERY";
+        const VERSION = "2026-01-04-0555-LOGIN-FIX";
         update('S01', `Browser Initialization [v:${VERSION}]`);
 
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
@@ -138,7 +138,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             browser = await chromium.launch({ headless: isHeadless, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
         }
 
-        // --- Context setup with Proven Consistency ---
         const contextOptions: any = {
             userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             viewport: { width: 1440, height: 900 },
@@ -146,7 +145,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             timezoneId: 'Asia/Tokyo'
         };
 
-        // 【生命線】すべてのストレージ状態（cookies, localStorage）を一括復元
         if (fs.existsSync(SESSION_FILE)) {
             contextOptions.storageState = SESSION_FILE;
         }
@@ -156,30 +154,31 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
 
-        // CORS/Network Error Detection
-        page.on('requestfailed', (request: any) => {
-            const err = request.failure();
-            if (err && (err.errorText.includes('ERR_FAILED') || err.errorText.includes('CORS'))) {
-                onUpdate(`[Network Block] ${request.url().substring(0, 50)}: ${err.errorText}`);
-            }
-        });
-
         await page.setDefaultTimeout(35000);
         update('S02', 'Navigating to Home');
         await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
         await page.waitForTimeout(5000);
 
-        // --- S03: Auth ---
+        // --- S03: Authentication (Updated Selectors based on Investigation) ---
         const isGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], .nc-header__login-button'));
         if (isGuest || page.url().includes('/login')) {
-            update('S03', 'Authentication Required...');
+            update('S03', `Authentication Required. URL: ${page.url().split('?')[0]}`);
             if (!page.url().includes('/login')) await page.goto('https://note.com/login', { waitUntil: 'load' });
+
             if (content.email && content.password) {
+                update('S03', 'Filling credentials...');
+                await page.waitForSelector('input#email', { timeout: 15000 });
                 await page.fill('input#email', content.email);
                 await page.fill('input#password', content.password);
-                await page.click('button[type="submit"]');
-                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 20000 });
-                // セッションを完全保存
+                await page.waitForTimeout(1000);
+
+                // 【修正】ログインボタンのセレクタをより堅牢に（調査結果に基づく）
+                const loginBtn = page.locator('button[data-type="primaryNext"], button:has-text("ログイン"), .o-login__submit').first();
+                await loginBtn.click();
+
+                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 25000 });
+
+                update('S03', 'Login success. Saving FULL session...');
                 const fullState = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(fullState));
                 await page.goto('https://note.com/', { waitUntil: 'load' });
@@ -199,9 +198,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             const tagCount = await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0);
             const shortUrl = url.length > 50 ? `...${url.substring(url.length - 45)}` : url;
 
-            // 【判定基準】Tagsが200を超えればJavaScriptが動作し始めたとみなす
             if (tagCount > 200 && url.includes('editor.note.com')) {
-                update('S04', `Editor Hydrated (Tags: ${tagCount})`);
+                update('S04', `Editor Hydrated (Tags: ${tagCount}) at [${shortUrl}]`);
                 editorBound = true;
                 break;
             }
@@ -230,6 +228,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 if (skip.some(t => el.textContent?.includes(t) || el.getAttribute('aria-label')?.includes(t))) el.click();
             });
             document.querySelectorAll('.nc-modal, .nc-popover').forEach(el => el.remove());
+            document.body.style.overflow = 'auto';
         }).catch(() => { });
         await page.waitForTimeout(2000);
 
