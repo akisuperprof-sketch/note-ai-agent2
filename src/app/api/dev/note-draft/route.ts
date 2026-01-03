@@ -82,7 +82,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1030-REBOOT-STABILIZED";
+        const VERSION = "2026-01-04-1045-REBOOT-FIRE-AND-FORGET";
         await update('S01', `Engine v${VERSION}`);
 
         // ローカル実行時はIP偽装のためBrowserlessを使わず、MacのGoogle Chromeを優先
@@ -174,16 +174,22 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             // 【救済1】ホームページで固まっている場合は強制ジャンプ
             if (!currentUrl.includes('editor.note.com') && i === 3) {
                 await update('S04', 'FORCE JUMP TO EDITOR');
-                await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
             }
 
             // 【救済2：成功要因】Tagsが45以下（膠着）ならタブを物理的に作り直す
-            if (stats.tags <= 45 && (i === 5 || i === 10)) {
+            if (stats.tags <= 45 && (i === 5 || i === 11)) {
                 await update('S04', 'CRITICAL REBOOT (NEW TAB)');
-                await page.close().catch(() => { });
-                page = await context.newPage();
-                await injectStealth(page);
-                await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+                try {
+                    const oldPage = page;
+                    page = await context.newPage();
+                    await injectStealth(page);
+                    await oldPage.close().catch(() => { });
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { });
+                    await update('S04', 'REBOOT DONE');
+                } catch (e) {
+                    await update('S04', 'REBOOT ERROR/RECOVERY');
+                }
             }
 
             await page.mouse.move(Math.random() * 100, Math.random() * 100);
