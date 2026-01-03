@@ -267,59 +267,38 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
-        // Human Action: Attempt to click "Post" button if not in editor
+        // Human Action: Fast-track to Editor
         if (!page.url().includes('editor.note.com')) {
-            update('S04', 'Locating Post button');
-            // Wait for header elements to really appear
-            await page.waitForSelector('.nc-header', { timeout: 8000 }).catch(() => { });
+            update('S04', 'Navigating directly to Editor entry point...');
 
-            // Re-check for guest state (maybe login failed or redirected)
-            const stillGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], .nc-header__login-button'));
-            if (stillGuest) throw new Error("ログイン状態の確認に失敗しました。ゲストとして認識されています。");
-
-            const postBtn = page.locator('button:has-text("投稿"), a[href*="/notes/new"], .nc-header__post-button, .nc-header__post-nav-item').first();
-
-            if (await postBtn.isVisible()) {
-                await postBtn.click();
-                update('S04', 'Post menu clicked. Waiting for Text option...');
-                // Wait for the menu with high resilience
-                const textBtn = page.locator('button:has-text("テキスト"), [data-test-id="post-text"], a:has-text("テキスト")').first();
-                try {
-                    await textBtn.waitFor({ state: 'visible', timeout: 8000 });
-                    await textBtn.click();
-                } catch (e) {
-                    update('S04', 'Post menu hidden. Forcing navigation.');
-                    await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-                }
-            } else {
-                update('S04', 'Post button not found. Using direct navigation.');
-                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-            }
+            // Bypass clicking the 'Post' button altogether to avoid campaign overlays
+            await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
 
             update('S04', 'Waiting for Editor redirect...');
             let redirectSuccess = false;
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 8; i++) {
                 const currentUrl = page.url();
                 if (currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) {
-                    update('S04', `Redirect success: ${currentUrl.substring(currentUrl.length - 20)}`);
+                    update('S04', `Editor Detected: ${currentUrl.substring(currentUrl.length - 20)}`);
                     redirectSuccess = true;
                     break;
                 }
-                update('S04', `Waiting for ID redirect (${i + 1}/5)... (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
+
+                // Re-check for guest state (maybe login was lost)
+                const isGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], button:has-text("ログイン")'));
+                if (isGuest && i > 3) throw new Error("セッションが消失しました。再度ログインが必要です。");
+
+                update('S04', `Waiting for ID redirect (${i + 1}/8)... (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
                 await page.waitForTimeout(4000);
-                if (currentUrl.endsWith('/new') && i === 2) {
-                    update('S04', 'Still on /new. Forcing reload.');
+
+                if (currentUrl.endsWith('/new') && i === 3) {
+                    update('S04', 'Redirection stalled. Forcing reload...');
                     await page.reload({ waitUntil: 'domcontentloaded' });
                 }
             }
 
             if (!redirectSuccess) {
-                const diag = await page.evaluate(() => ({
-                    tags: document.querySelectorAll('*').length,
-                    title: document.title,
-                    url: window.location.href
-                }));
-                update('S04', `Redirect timeout. State: ${JSON.stringify(diag)}`);
+                update('S04', 'Redirect timeout. Attempting to proceed anyway...');
             }
             await page.waitForTimeout(5000);
         }
