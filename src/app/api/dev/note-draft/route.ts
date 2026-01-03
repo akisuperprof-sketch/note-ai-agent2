@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
                 const jobId = `job-${Date.now()}`;
                 const job: NoteJob = {
                     job_id: jobId, article_id: article_id || 'unknown', request_id: request_id || 'unknown',
-                    mode, status: 'pending', last_step: 'Initializing Engine...', title, body: noteBody,
+                    mode, status: 'pending', last_step: 'Initializing...', title, body: noteBody,
                     tags: tags || [], scheduled_at: scheduled_at || null, started_at: new Date().toISOString(),
                 };
 
@@ -95,7 +95,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-04-0630-FINAL-PRECISION";
+        const VERSION = "2026-01-04-0640-CROSS-ENV-FIX";
         update('S01', `Engine v${VERSION}`);
 
         const settings = getDevSettings();
@@ -118,19 +118,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         const context = await browser.newContext(contextOptions);
         page = await context.newPage();
-        page.on('pageerror', (err: any) => onUpdate(`[SPA ERROR] ${err.message.substring(0, 60)}`));
 
         await page.setDefaultTimeout(35000);
-        update('S02', 'Navigating to note.com');
+        update('S02', 'Accessing note.com');
         await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
         await page.waitForTimeout(4000);
 
-        // --- S03: Authentication (Strict Implementation) ---
-        const loginTrigger = '.nc-header__login-button, a[href*="/login"]';
-        const isGuest = await page.evaluate((sel: string) => !!document.querySelector(sel), loginTrigger);
+        // --- S03: Authentication (Softened Settlement Check) ---
+        const isGuest = await page.evaluate(() => !!document.querySelector('.nc-header__login-button, a[href*="/login"]'));
 
         if (isGuest || page.url().includes('/login')) {
-            update('S03', `Auth Required. Current URL: ${page.url().substring(0, 30)}`);
+            update('S03', `Injected Login. Current URL: ${page.url().substring(0, 30)}`);
             if (!page.url().includes('/login')) await page.goto('https://note.com/login', { waitUntil: 'load' });
 
             if (content.email && content.password) {
@@ -138,17 +136,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 await page.fill('input#password', content.password);
                 const btn = page.locator('button[data-type="primaryNext"], button:has-text("ログイン"), .o-login__submit').first();
                 await btn.click({ force: true });
-                update('S03', 'Waiting for Auth Settlement...');
-                await page.waitForSelector('.nc-header__user-menu, .nc-header__profile', { timeout: 25000 });
-                await page.goto('https://editor.note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
-                await page.waitForTimeout(2000);
+
+                // 【変更】アイコンが出るのを待たず、URLが遷移したことのみを確認
+                update('S03', 'Redirecting after login...');
+                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 25000 });
+
+                // セッション保存
                 const fullState = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(fullState));
-                update('S03', 'Login success. Session Sync Complete.');
+                update('S03', 'Session updated.');
             } else { throw new Error("Credentials missing"); }
         }
 
-        // --- S04: Editor Entry ---
+        // --- S04: Editor Entry (The Real Truth) ---
         update('S04', 'Opening Editor Canvas...');
         await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
 
@@ -161,8 +161,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             update('S04', `Sync ${i + 1}/6: [Tags:${tags}] at [${url.substring(0, 45)}...] (${title})`);
 
-            if (tags > 200 && (hasEditor || url.includes('editor.note.com'))) {
-                update('S04', 'Editor Hydrated! (Ready for Injection)');
+            // ログインに失敗しているとここで Tags 40 付近から動かないはず
+            if (tags > 180 && (hasEditor || url.includes('editor.note.com'))) {
+                update('S04', 'Hydration confirmed.');
                 editorBound = true;
                 break;
             }
@@ -179,7 +180,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             await page.waitForTimeout(5000);
         }
 
-        if (!editorBound) throw new Error(`Hydration failed (Tags:${await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)})`);
+        if (!editorBound) throw new Error(`Editor failed to load. Likely login was unsuccessful (Tags:${await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)})`);
 
         // --- S05 ~ S10: Execution ---
         update('S05', 'Bypassing Overlays...');
