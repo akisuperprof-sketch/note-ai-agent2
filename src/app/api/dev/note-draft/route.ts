@@ -269,19 +269,32 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         // Human Action: Fast-track to Editor
         if (!page.url().includes('editor.note.com')) {
-            update('S04', 'Navigating directly to Editor entry point...');
+            update('S04', 'Navigating to Editor entry point...');
 
             // Bypass clicking the 'Post' button altogether to avoid campaign overlays
-            await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+            await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
 
-            update('S04', 'Waiting for Editor redirect...');
+            update('S04', 'Monitoring Editor redirect...');
             let redirectSuccess = false;
             for (let i = 0; i < 8; i++) {
                 const currentUrl = page.url();
-                if (currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) {
-                    update('S04', `Editor Detected: ${currentUrl.substring(currentUrl.length - 20)}`);
-                    redirectSuccess = true;
-                    break;
+                const title = await page.title();
+                const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
+
+                if ((currentUrl.includes('/notes/') && !currentUrl.endsWith('/new')) || currentUrl.includes('editor.note.com')) {
+                    if (tagCount > 100) {
+                        update('S04', `Editor Detected: ${tagCount} tags`);
+                        redirectSuccess = true;
+                        break;
+                    }
+                }
+
+                // Diagnostic log
+                update('S04', `Wait (${i + 1}/8) Tags:${tagCount} URL:${currentUrl.substring(currentUrl.length - 15)}`);
+
+                if (i === 4 && tagCount < 70) {
+                    update('S04', 'Stall detected. Re-navigating to entry point...');
+                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
                 }
 
                 // Re-check for guest state (maybe login was lost)
@@ -289,28 +302,22 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     const loginBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('ログイン'));
                     return !!document.querySelector('a[href*="/login"]') || !!loginBtn;
                 });
-                if (isGuest && i > 3) throw new Error("セッションが消失しました。再度ログインが必要です。");
+                if (isGuest && i > 5) throw new Error("セッション消失。再ログインが必要です。");
 
-                update('S04', `Waiting for ID redirect (${i + 1}/8)... (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
                 await page.waitForTimeout(4000);
-
-                if (currentUrl.endsWith('/new') && i === 3) {
-                    update('S04', 'Redirection stalled. Forcing reload...');
-                    await page.reload({ waitUntil: 'domcontentloaded' });
-                }
             }
 
             if (!redirectSuccess) {
-                update('S04', 'Redirect timeout. Attempting to proceed anyway...');
+                update('S04', 'Redirect timeout (proceeding anyway)');
             }
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(3000);
         }
 
-        update('S04', 'Waiting for React/SPA hydration...');
+        update('S04', 'Waiting for Editor DOM...');
         try {
-            await page.waitForLoadState('networkidle', { timeout: 10000 });
+            await page.waitForSelector('[contenteditable="true"], .note-editor, .ProseMirror', { timeout: 15000 });
         } catch (e) { }
-        await page.waitForTimeout(10000);
+
         update('S05', `Editor confirmed (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
 
         // Tutorial Bypass (Aggressive)
@@ -393,7 +400,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         if (content.mode === 'development_v4') {
-            update('S06', 'Ghost Injection: Targeting Editor Core');
+            update('S06', 'Ghost Injection: Formatting with insertHTML');
             const injectionSuccess = await page.evaluate(({ title, body }: { title: string, body: string }) => {
                 const findEl = (selectors: string[]) => {
                     for (let s of selectors) {
@@ -404,19 +411,38 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 };
 
                 const titleEl = findEl(['textarea[placeholder*="タイトル"]', '.note-editor-title textarea', 'h1[contenteditable="true"]']) as any;
-                const bodyEl = findEl(['div.ProseMirror[role="textbox"]', '.ProseMirror', '.note-editor-body']) as any;
+                const bodyEl = findEl(['div.ProseMirror[role="textbox"]', '.ProseMirror', '.note-editor-body', 'div[contenteditable="true"]']) as any;
 
-                if (!titleEl || !bodyEl) return false;
+                if (!titleEl || !bodyEl) return { success: false, error: `Elements not found. Title:${!!titleEl} Body:${!!bodyEl}` };
 
+                // Title Injection
                 titleEl.focus();
+                document.execCommand('selectAll', false, undefined);
                 document.execCommand('insertText', false, title);
+
+                // Body Injection (using insertHTML for rich text)
                 bodyEl.focus();
-                document.execCommand('insertText', false, body);
-                return true;
+                document.execCommand('selectAll', false, undefined);
+                document.execCommand('delete', false, undefined);
+
+                // Simple Markdown to HTML converter (compatible with Note's editor)
+                const htmlLines = body.split('\n').map(line => {
+                    if (line.startsWith('## ')) return `<h2>${line.substring(3)}</h2>`;
+                    if (line.startsWith('# ')) return `<h1>${line.substring(2)}</h1>`;
+                    if (line.startsWith('> ')) return `<blockquote>${line.substring(2)}</blockquote>`;
+                    if (line.trim() === '') return '<p><br></p>';
+                    return `<p>${line}</p>`;
+                });
+                const htmlContent = htmlLines.join('');
+
+                document.execCommand('insertHTML', false, htmlContent);
+                return { success: true };
             }, { title: content.title, body: content.body });
 
-            if (!injectionSuccess) throw new Error("Ghost Injection failed: Editor not found.");
-            update('S08', 'Ghost Injection Success');
+            if (!injectionSuccess.success) {
+                throw new Error(`Ghost Injection failed: ${injectionSuccess.error}`);
+            }
+            update('S08', 'Ghost Injection Success (insertHTML applied)');
             await page.waitForTimeout(2000);
         } else {
             const bestSelectors = await page.evaluate(() => {
