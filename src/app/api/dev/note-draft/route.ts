@@ -82,7 +82,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1000-FIX-HOME-STALL";
+        const VERSION = "2026-01-04-1030-REBOOT-STABILIZED";
         await update('S01', `Engine v${VERSION}`);
 
         // ローカル実行時はIP偽装のためBrowserlessを使わず、MacのGoogle Chromeを優先
@@ -171,13 +171,21 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 hydrated = true; break;
             }
 
-            // 【救済】ホームページで固まっている、またはTagsが極端に低い場合
-            if (!currentUrl.includes('editor.note.com') || stats.tags <= 45) {
-                if (i === 3 || i === 8) {
-                    await update('S04', 'FORCE JUMP TO EDITOR');
-                    await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
-                }
+            // 【救済1】ホームページで固まっている場合は強制ジャンプ
+            if (!currentUrl.includes('editor.note.com') && i === 3) {
+                await update('S04', 'FORCE JUMP TO EDITOR');
+                await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
             }
+
+            // 【救済2：成功要因】Tagsが45以下（膠着）ならタブを物理的に作り直す
+            if (stats.tags <= 45 && (i === 5 || i === 10)) {
+                await update('S04', 'CRITICAL REBOOT (NEW TAB)');
+                await page.close().catch(() => { });
+                page = await context.newPage();
+                await injectStealth(page);
+                await page.goto('https://note.com/notes/new', { waitUntil: 'load' }).catch(() => { });
+            }
+
             await page.mouse.move(Math.random() * 100, Math.random() * 100);
             await page.waitForTimeout(5000);
         }
