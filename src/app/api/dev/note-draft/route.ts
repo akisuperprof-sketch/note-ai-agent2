@@ -129,7 +129,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             });
         }
 
-        // Stick to a premium Desktop profile for the Editor
         const profile = {
             ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             w: 1440,
@@ -139,25 +138,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         const context = await browser.newContext({
             userAgent: profile.ua,
             viewport: { width: profile.w, height: profile.h },
-            deviceScaleFactor: 1,
-            isMobile: false,
-            hasTouch: false,
             locale: 'ja-JP',
             timezoneId: 'Asia/Tokyo',
             extraHTTPHeaders: {
-                'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"macOS"',
+                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
             }
         });
 
-        // Super Stealth Injection
+        // Simple Stealth
         await context.addInitScript(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja'] });
-            Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
-            // Mock plugins
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
         });
 
         if (fs.existsSync(SESSION_FILE)) {
@@ -262,10 +252,33 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }
 
-        // Human Action: Editor Entry
-        update('S04', 'Opening Editor Creation Page...');
-        // Initial goto - using domcontentloaded for speed
-        await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => { });
+        // Human Action: Editor Entry (The "Pen Mark" Flow)
+        update('S04', 'Entering Editor (Pen Mode)...');
+
+        // Go home first to ensure fresh state
+        await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
+        await page.waitForTimeout(4000);
+
+        // Try to click the "Post" button (the pen mark)
+        const postButton = page.locator('.nc-header__post-button, button[aria-label="投稿"], .nc-header__action-post').first();
+        if (await postButton.isVisible()) {
+            update('S04', 'Clicking Post Button...');
+            await postButton.click().catch(() => { });
+            await page.waitForTimeout(2000);
+
+            // Look for "テキスト" (Text) in the menu
+            const textOption = page.locator('a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"]').first();
+            if (await textOption.isVisible()) {
+                update('S04', 'Selecting "Text" (記事作成)...');
+                await textOption.click().catch(() => { });
+            } else {
+                update('S04', 'Post menu hidden. Directing to /new...');
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+            }
+        } else {
+            update('S04', 'Post button not found. Using direct navigation...');
+            await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+        }
 
         let redirectSuccess = false;
         for (let i = 0; i < 15; i++) {
@@ -274,49 +287,44 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
             // SUCCESS CONDITION: URL has a note ID (n...) and is in edit mode
             const isEditUrl = /\/n[a-z0-9]+\/edit/.test(currentUrl) || currentUrl.includes('editor.note.com');
-            const hasStartedHydration = tagCount > 60; // Lower threshold to detect early SPA start
+            const hasStartedHydration = tagCount > 150; // Increased threshold for true stability
 
             if (isEditUrl && hasStartedHydration && !currentUrl.endsWith('/new')) {
-                update('S04', `Editor Detected: ID successfully issued.`);
+                update('S04', `Editor Active: Note ID Ready (${tagCount} tags)`);
                 redirectSuccess = true;
                 break;
             }
 
-            // Descriptive logs to reassure the user
-            const progress = i < 5 ? "Initializing..." : i < 10 ? "Acquiring Note ID..." : "Waiting for SPA...";
-            update('S04', `Monitor Session (${i + 1}/15): ${progress} (Tags: ${tagCount})`);
+            // Diagnostic progress logs
+            const statusText = i < 5 ? "Initializing..." : i < 10 ? "SPA Hydrating..." : "Waiting for Note ID...";
+            update('S04', `Monitor Session (${i + 1}/15): ${statusText} [Tags: ${tagCount}]`);
 
-            // Rescue: Only if clearly stuck on home page after first few tries
-            if (i === 5 && (currentUrl === 'https://note.com/' || currentUrl.includes('note.com/?'))) {
-                update('S04', 'Home page detected. Re-triggering Editor entry...');
-                await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
-            }
-
-            // Refresh: If clearly stuck on /new for too long
-            if (currentUrl.endsWith('/new') && i === 10) {
-                update('S04', 'Stall detected. Forcing page refresh...');
+            // Rescue: If stuck on white screen (Tags: 40) for too long
+            if (tagCount < 60 && i === 6) {
+                update('S04', 'Skeleton stall detected. Forcing clean refresh...');
                 await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
             }
 
             // Generic stimuli
             if (i > 3 && tagCount < 100) {
                 await page.mouse.click(10, 10).catch(() => { });
+                await page.keyboard.press('Escape').catch(() => { });
             }
 
             await page.waitForTimeout(4000);
         }
 
         if (!redirectSuccess) {
-            update('S04', 'Proceeding with current URL (ID acquisition may be delayed)');
+            update('S04', 'Monitor timeout. Proceeding with caution.');
         }
         await page.waitForTimeout(3000);
 
-        update('S04', 'Waiting for Editor DOM...');
+        update('S04', 'Confirming Editor DOM...');
         try {
-            await page.waitForSelector('[contenteditable="true"], .note-editor, .ProseMirror', { timeout: 15000 });
+            await page.waitForSelector('.note-editor, .ProseMirror, [contenteditable="true"]', { timeout: 15000 });
         } catch (e) { }
 
-        update('S05', `Editor confirmed (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
+        update('S05', `Editor Connection Stable (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
 
         // Tutorial Bypass (Aggressive)
         update('S05', 'Bypassing tutorials/overlays');
