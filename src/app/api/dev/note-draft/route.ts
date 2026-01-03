@@ -4,8 +4,15 @@ import fs from 'fs';
 import { chromium } from 'playwright-core';
 import { getDevSettings, validateDevMode } from '@/lib/server/flags';
 
-const JOBS_DIR = path.join(process.cwd(), '.gemini', 'note-draft-jobs');
-const SESSION_FILE = path.join(process.cwd(), '.gemini', 'note-session.json');
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN);
+
+const JOBS_DIR = isServerless
+    ? path.join('/tmp', 'note-draft-jobs')
+    : path.join(process.cwd(), '.gemini', 'note-draft-jobs');
+
+const SESSION_FILE = isServerless
+    ? path.join('/tmp', 'note-session.json')
+    : path.join(process.cwd(), '.gemini', 'note-session.json');
 
 type NoteJob = {
     job_id: string;
@@ -28,14 +35,12 @@ function saveJob(job: NoteJob) {
     fs.writeFileSync(path.join(JOBS_DIR, `${job.job_id}.json`), JSON.stringify(job, null, 2));
 }
 
-const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN);
-
 export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
         async start(controller) {
             const sendUpdate = (step: string) => {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ step })}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ last_step: step })}\n\n`));
             };
 
             const heartbeat = setInterval(() => {
@@ -46,7 +51,7 @@ export async function POST(req: NextRequest) {
                 const body = await req.json();
                 const { title, body: noteBody, tags, scheduled_at, mode, visualDebug } = body;
 
-                validateDevMode(mode);
+                if (!validateDevMode(mode)) throw new Error(`Invalid mode: ${mode}`);
 
                 const jobId = `job-${Date.now()}`;
                 const job: NoteJob = {
@@ -78,7 +83,7 @@ export async function POST(req: NextRequest) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: 'success', job_id: jobId, note_url: result.note_url })}\n\n`));
             } catch (error: any) {
                 console.error("Action Error:", error);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: 'error', message: error.message })}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
             } finally {
                 clearInterval(heartbeat);
                 controller.close();
@@ -116,7 +121,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-03-2215-FIXED";
+        const VERSION = "2026-01-03-2220-VERCEL-FIX";
         update('S01', `Load Session / Browser Init [v:${VERSION}]`);
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
 
