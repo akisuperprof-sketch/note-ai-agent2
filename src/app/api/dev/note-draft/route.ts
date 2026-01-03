@@ -5,13 +5,15 @@ import { chromium } from 'playwright-core';
 import { getDevSettings, validateDevMode } from '@/lib/server/flags';
 
 // --- Config ---
-const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN);
+// VERCEL環境かどうかを厳密に判定
+const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
 
-const JOBS_DIR = isServerless
+const JOBS_DIR = isVercel
     ? path.join('/tmp', 'note-draft-jobs')
     : path.join(process.cwd(), '.gemini', 'note-draft-jobs');
 
-const SESSION_FILE = isServerless
+const SESSION_FILE = isVercel
     ? path.join('/tmp', 'note-session.json')
     : path.join(process.cwd(), '.gemini', 'note-session.json');
 
@@ -118,14 +120,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-0715-ULTIMATE-RECOVERY";
+        const VERSION = "2026-01-04-0915-LOCAL-IP-FORCED";
         await update('S01', `Engine v${VERSION}`);
 
-        const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
-        if (isServerless) {
+        if (isVercel && BROWSERLESS_TOKEN) {
             browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
         } else {
-            browser = await chromium.launch({ headless: !content.visualDebug, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
+            // ローカル実行時は必ず手元のブラウザを起動（＝お客様の自宅IPを使用）
+            browser = await chromium.launch({
+                headless: !content.visualDebug,
+                args: ['--no-sandbox', '--disable-blink-features=AutomationControlled']
+            });
         }
 
         const contextOptions: any = {
