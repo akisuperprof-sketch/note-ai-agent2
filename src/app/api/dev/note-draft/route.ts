@@ -285,7 +285,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 }
 
                 // Re-check for guest state (maybe login was lost)
-                const isGuest = await page.evaluate(() => !!document.querySelector('a[href*="/login"], button:has-text("ログイン")'));
+                const isGuest = await page.evaluate(() => {
+                    const loginBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('ログイン'));
+                    return !!document.querySelector('a[href*="/login"]') || !!loginBtn;
+                });
                 if (isGuest && i > 3) throw new Error("セッションが消失しました。再度ログインが必要です。");
 
                 update('S04', `Waiting for ID redirect (${i + 1}/8)... (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
