@@ -979,6 +979,8 @@ export default function Home() {
   const [errorScreenshot, setErrorScreenshot] = useState<string | null>(null);
   const [visualDebug, setVisualDebug] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   // Restore logs from session storage on mount
   useEffect(() => {
@@ -1019,6 +1021,19 @@ export default function Home() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [startTime, postStatus]);
 
+  const handleStop = () => {
+    if (readerRef.current) {
+      readerRef.current.cancel();
+      readerRef.current = null;
+    }
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setPostStatus("idle");
+    setPostLogs(prev => [...prev, { text: "[STOP] ユーザーにより停止されました", time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+  };
+
   const NotePostConsole = () => {
     if (postStatus === 'idle') return null;
     return (
@@ -1034,7 +1049,16 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {postStatus === 'error' && (
+            {postStatus === 'posting' && (
+              <button
+                onClick={handleStop}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-red-100 hover:text-white bg-red-500 hover:bg-red-600 px-4 py-2 rounded-full transition-all scale-active shadow-lg shadow-red-500/20"
+              >
+                <X size={12} className="font-black" />
+                停止
+              </button>
+            )}
+            {(postStatus === 'error' || postStatus === 'success') && (
               <button
                 onClick={() => {
                   setPostStatus('idle');
@@ -1325,7 +1349,7 @@ export default function Home() {
     setElapsedTime("0:00");
 
     // ポーリング用のタイマー
-    const pollInterval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await fetch("/api/dev/note-jobs");
         if (res.ok) {
@@ -1344,7 +1368,7 @@ export default function Home() {
             });
 
             if (myJob.status === 'success' || myJob.status === 'failed') {
-              clearInterval(pollInterval);
+              if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
               setPostStatus(myJob.status === 'success' ? 'success' : 'error');
               if (myJob.status === 'success' && myJob.note_url) {
                 setNotePostConsoleUrl(myJob.note_url);
@@ -1378,6 +1402,7 @@ export default function Home() {
 
       if (!res.body) throw new Error("No response body");
       const reader = res.body.getReader();
+      readerRef.current = reader;
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -1425,7 +1450,9 @@ export default function Home() {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setPostLogs(prev => [...prev, { text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
     } finally {
-      clearInterval(pollInterval);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+      readerRef.current = null;
     }
   };
 
