@@ -131,15 +131,27 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         // --- 人間動線：トップからペンマークをクリック ---
-        await update('S04', 'Clicking Post Button');
-        if (page.url().includes('editor.note.com')) { /* Skip if already there */ }
+        await update('S04', 'Clearing Overlays & Clicking');
+
+        // 邪魔なモーダルを物理的に消去
+        await page.evaluate(() => {
+            const selectors = ['.nc-modal', '.nc-modal-backdrop', '.modal-content-wrapper', '[class*="modal"]'];
+            selectors.forEach(s => {
+                document.querySelectorAll(s).forEach(el => (el as HTMLElement).style.display = 'none');
+                document.querySelectorAll(s).forEach(el => el.remove());
+            });
+            document.body.style.overflow = 'auto'; // スクロールロック解除
+        }).catch(() => { });
+
+        if (page.url().includes('editor.note.com')) { /* Skip */ }
         else {
             const postBtn = await page.$('.nc-header__post-button, [aria-label="投稿"], .nc-header__user-menu');
             if (postBtn) {
-                await postBtn.click();
+                await postBtn.click({ timeout: 5000 }).catch(async () => {
+                    await page.goto('https://note.com/notes/new');
+                });
                 await page.waitForTimeout(2000);
-                // メニュー内の「テキスト」をクリック
-                await page.click('text=テキスト').catch(() => { });
+                await page.click('text=テキスト', { timeout: 3000 }).catch(() => { });
             } else {
                 await page.goto('https://note.com/notes/new');
             }
