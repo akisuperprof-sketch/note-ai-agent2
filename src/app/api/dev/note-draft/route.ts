@@ -240,12 +240,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         return { status: 'success', note_url: job.note_url };
 
     } catch (e: any) {
-        job.status = 'failed'; job.error_message = e.message;
+        job.status = 'failed';
+        // 手動投稿を促すメッセージを付与
+        const manualPrompt = "\n\n【自動投稿に失敗しました】\nお手数ですが、下記URLより内容をコピー＆ペーストして手動での下書き作成をお願いいたします。\nURL: https://note.com/notes/new";
+        job.error_message = e.message + manualPrompt;
+
         if (page) {
             const buf = await page.screenshot({ type: 'png' }).catch(() => null);
             if (buf) job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
         }
         saveJob(job); if (browser) await browser.close();
-        throw e;
+        throw new Error(job.error_message);
     }
 }
