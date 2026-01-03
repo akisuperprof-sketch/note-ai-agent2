@@ -142,6 +142,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             timezoneId: 'Asia/Tokyo',
             extraHTTPHeaders: {
                 'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                'Referer': 'https://note.com/',
+                'Origin': 'https://note.com',
             }
         });
 
@@ -258,63 +260,59 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         // Human Action: Editor Entry (The "Pen Mark" Flow)
         update('S04', 'Entering Editor (Pen Mode)...');
 
-        // Go home first to ensure fresh state
+        // Go home first
         await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => { });
         await page.waitForTimeout(6000);
 
+        // Aggressive Modal Wipe on Home
+        await page.evaluate(() => {
+            const btnTexts = ['閉じる', 'close', 'スキップ', 'skip', '理解しました', '×', 'ok'];
+            const all = Array.from(document.querySelectorAll('button, div, span, a'));
+            all.forEach((el: any) => {
+                const txt = (el.textContent || "").toLowerCase().trim();
+                const aria = (el.getAttribute('aria-label') || "").toLowerCase();
+                if (btnTexts.includes(txt) || btnTexts.some(b => aria.includes(b))) el.click();
+            });
+            document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop').forEach((el: any) => el.remove());
+        }).catch(() => { });
+
         // Final Check: Are we already in the editor?
         if (page.url().includes('/notes/n') || page.url().includes('editor.note.com')) {
-            update('S04', 'Already in editor environment.');
+            update('S04', 'Direct editor access confirmed.');
         } else {
-            // Wait for Pen Mark (be very aggressive with selectors)
+            // Find Pen Mark (Multiple Selectors including the orange floating button)
             const postBtnSelector = [
                 '.nc-header__post-button',
                 'button[aria-label="投稿"]',
                 '.nc-header__create-button',
                 '.nc-header__action-post',
                 'button:has-text("投稿")',
-                'a[href*="notes/new"]'
+                '.nc-header-action-button'
             ].join(', ');
 
+            let clicked = false;
             try {
-                await page.waitForSelector(postBtnSelector, { timeout: 15000 });
-            } catch (e) {
-                update('S04', 'Pen mark hidden. Executing total modal wipe...');
-            }
+                const btn = page.locator(postBtnSelector).first();
+                if (await btn.isVisible()) {
+                    update('S04', 'Clicking Post Button...');
+                    await btn.click({ force: true });
+                    clicked = true;
+                }
+            } catch (e) { }
 
-            // --- Aggressive Pre-entry Popup Removal ---
-            await page.evaluate(() => {
-                const btnTexts = ['閉じる', 'close', 'スキップ', 'skip', '理解しました', '×'];
-                const all = Array.from(document.querySelectorAll('button, div, span, a'));
-                all.forEach((el: any) => {
-                    const txt = (el.textContent || "").toLowerCase().trim();
-                    const aria = (el.getAttribute('aria-label') || "").toLowerCase();
-                    if (btnTexts.includes(txt) || btnTexts.some(b => aria.includes(b))) {
-                        el.click();
-                    }
-                });
-                document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-popover, .nc-modal-backdrop').forEach((el: any) => el.remove());
-            }).catch(() => { });
-
-            // Try to click the "Post" button
-            const postButton = page.locator(postBtnSelector).first();
-            if (await postButton.isVisible()) {
-                update('S04', 'Clicking Post Button...');
-                await postButton.click({ force: true }).catch(() => { });
+            if (clicked) {
                 await page.waitForTimeout(4000);
-
-                const textOptionSelector = 'a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"], .nc-post-menu__item-text, span:has-text("テキスト")';
-                const textOption = page.locator(textOptionSelector).first();
-                if (await textOption.isVisible()) {
+                const textOpt = page.locator('a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"], .nc-post-menu__item-text, span:has-text("テキスト")').first();
+                if (await textOpt.isVisible()) {
                     update('S04', 'Selecting "Text" (記事作成)...');
-                    await textOption.click().catch(() => { });
+                    await textOpt.click().catch(() => { });
                 } else {
-                    update('S04', 'Menu stuck. Direct navigation to creation...');
+                    update('S04', 'Menu stuck. Falling back to direct /notes/new...');
                     await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
                 }
             } else {
-                update('S04', 'Pen mark still missing. Using Editor fallback...');
-                await page.goto('https://editor.note.com/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
+                update('S04', 'Pen mark hidden. Forcing direct Editor fallback...');
+                await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
         }
 
@@ -330,41 +328,42 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
             } catch (evalErr: any) {
                 if (evalErr.message.includes('context was destroyed')) {
-                    update('S04', 'Navigation Sync...');
+                    update('S04', 'Syncing URL transition...');
                     await page.waitForTimeout(3000);
                     continue;
                 }
             }
 
-            // SUCCESS CONDITION
+            // SUCCESS CONDITION: We have a Note ID and the UI is hydrated
             const isEditUrl = /\/n[a-z0-9]+\/edit/.test(currentUrl) || currentUrl.includes('editor.note.com');
-            const hasStartedHydrating = tagCount > 100;
+            const isLoaded = tagCount > 100;
 
-            if (isEditUrl && hasStartedHydrating && !currentUrl.endsWith('/new')) {
+            if (isEditUrl && isLoaded && !currentUrl.endsWith('/new')) {
                 update('S04', `Editor Connected (Tags: ${tagCount})`);
                 redirectSuccess = true;
                 break;
             }
 
             // Diagnostic progress
-            const statusText = tagCount < 70 ? "Skeleton (Loading JS...)" : "Hydrating UI...";
+            const statusText = tagCount < 70 ? "Skeleton (Waiting for JS...)" : "Hydrating SPA...";
             update('S04', `Monitor Session (${i + 1}/15): ${statusText} [Tags: ${tagCount}]`);
 
-            // Early Rescue for Skeleton/Stall
-            if (i >= 3 && tagCount < 80) {
-                if (i === 4 || i === 8 || i === 12) {
-                    update('S04', 'Stall detected. Stimulating hydration...');
+            // AGGRESSIVE HYDRATION STIMULUS
+            if (i >= 2 && tagCount < 100) {
+                if (i % 3 === 0) {
+                    update('S04', 'Hydration stall. Refreshing page...');
                     await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
                 } else {
-                    // Clicks to wake up event loop
+                    // Clicks and scrolls to wake up Note's SPA event loop
                     await page.mouse.click(720, 450).catch(() => { });
                     await page.keyboard.press('Escape').catch(() => { });
+                    await page.evaluate(() => window.scrollBy(0, 10)).catch(() => { });
                 }
             }
 
-            // Redirect Rescue
-            if (i > 5 && (currentUrl.endsWith('note.com/') || currentUrl.includes('note.com/?'))) {
-                update('S04', 'Stuck on Home. Retrying redirect...');
+            // Stuck on Home Rescue
+            if (i > 4 && (currentUrl.endsWith('note.com/') || currentUrl.includes('note.com/?'))) {
+                update('S04', 'Still on Home page. Hard retry...');
                 await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
 
