@@ -14,6 +14,7 @@ export const DEV_SETTINGS = {
     ALLOW_PUBLISH: false,
     MAX_JOBS_PER_DAY: 10,
     MIN_INTERVAL_SECONDS: 30,
+    VISUAL_DEBUG: false, // 開発モード3用: 有頭ブラウザでの起動
 };
 
 export function getDevSettings() {

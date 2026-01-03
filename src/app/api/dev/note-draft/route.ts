@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
             }, 8000);
 
             try {
-                const { article_id, title, body, mode, request_id, email, password, tags, scheduled_at } = await req.json();
+                const { article_id, request_id, title, body, tags, scheduled_at, mode, email, password, isTest, visualDebug } = await req.json();
 
                 if (!validateDevMode(mode)) {
                     sendUpdate({ error: "Forbidden" });
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
                     note_url: null,
                     error_code: null,
                     error_message: null,
+                    error_screenshot: null,
                     last_step: 'S00: Precheck (安全性確認)',
                     scheduled_at: scheduled_at || null,
                     tags: tags || []
@@ -61,7 +62,9 @@ export async function POST(req: NextRequest) {
 
                 sendUpdate({ status: 'running', last_step: job.last_step });
 
-                await runNoteDraftAction(job, { title, body, email, password, tags, scheduled_at }, (step) => {
+                await runNoteDraftAction(job, {
+                    title, body, tags, scheduled_at, email, password, visualDebug
+                }, (step) => {
                     sendUpdate({ status: 'running', last_step: step });
                 });
 
@@ -86,7 +89,7 @@ export async function POST(req: NextRequest) {
     });
 }
 
-async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string }, onUpdate: (step: string) => void) {
+async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string, visualDebug?: boolean }, onUpdate: (step: string) => void) {
     job.status = 'running';
     job.started_at = new Date().toISOString();
     job.tags = content.tags || [];
@@ -110,12 +113,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        update('S01', 'Load Session / Browser Init');
+        const VERSION = "2026-01-03-1740";
+        update('S01', `Load Session / Browser Init [v:${VERSION}]`);
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
+        const settings = getDevSettings();
+
         if (isServerless) {
             browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 15000 });
         } else {
-            browser = await playwright.launch({ headless: true });
+            // Development Mode 3: Use headless: false if visualDebug is requested
+            const isHeadless = content.visualDebug ? false : !settings.VISUAL_DEBUG;
+            browser = await playwright.launch({ headless: isHeadless });
         }
 
         const deviceProfiles = [
@@ -239,11 +247,11 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
                 }
             } else {
-                update('S04', 'Direct navigation to editor');
+                update('S04', `Direct navigation to editor (URL: ${page.url()})`);
                 await page.goto('https://editor.note.com/notes/new', { waitUntil: 'load', referer: 'https://note.com/' }).catch(() => { });
             }
             // CRITICAL: Wait for editor application to boot up
-            update('S04', 'Waiting for Editor SPA boot');
+            update('S04', `Waiting for Editor SPA boot (Current URL: ${page.url()})`);
             await page.waitForTimeout(10000);
         }
         update('S05', 'Editor confirmed');
@@ -280,19 +288,17 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         }
 
         let editorFound = false;
-        for (let i = 0; i < 6; i++) {
-            const diag = await page.evaluate(() => ({
+        let lastDiag: any = null;
+        for (let i = 0; i < 3; i++) {
+            lastDiag = await page.evaluate(() => ({
                 tags: document.querySelectorAll('*').length,
                 title: document.title,
+                url: window.location.href,
                 html: document.documentElement.outerHTML.substring(0, 300).replace(/\s+/g, ' ')
             }));
 
-            if (diag.tags < 50 && i > 0) {
-                update('S05', `Editor frozen? (Tags: ${diag.tags})`);
-
-                // Deep Audit: What is actually in the HTML?
-                const pageContent = await page.evaluate(() => document.documentElement.outerHTML.substring(0, 500));
-                console.log(`[Diagnostic HTML] ${pageContent}`);
+            if (lastDiag.tags < 50 && i > 0) {
+                update('S05', `Editor frozen? (Tags: ${lastDiag.tags}, Title: "${lastDiag.title || 'Empty'}", URL: ${lastDiag.url})`);
 
                 if (i === 1) {
                     update('S05', 'Injecting click stimuli');
@@ -304,11 +310,6 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     update('S05', 'Force reloading page');
                     await page.reload({ waitUntil: 'networkidle' }).catch(() => { });
                 }
-                if (i === 4) {
-                    update('S05', 'Resetting session and retrying');
-                    if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
-                    await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
-                }
                 await page.waitForTimeout(6000);
             }
 
@@ -319,10 +320,19 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 editorFound = true;
                 break;
             }
-            update('S05', `Waiting for Editor mount (${i + 1}/6)`);
+            update('S05', `Waiting for Editor mount (${i + 1}/3)`);
 
             if (i === 1) await page.mouse.click(600, 400).catch(() => { });
-            if (i === 3) await page.keyboard.press('Escape');
+        }
+
+        if (!editorFound) {
+            const finalUrl = page.url();
+            let reason = "エディタの要素が見つかりませんでした。";
+            if (finalUrl.includes('/login')) reason = "ログイン画面にリダイレクトされました（セッション切れの可能性）。";
+            if (lastDiag?.tags < 50) reason = `ページが正常に読み込めていない可能性があります（タグ数: ${lastDiag?.tags}）。`;
+
+            throw new Error(`[S05 Error] ${reason} 
+                解析結果: [URL: ${finalUrl}] [Title: ${lastDiag?.title || 'none'}] [Tags: ${lastDiag?.tags || 0}]`);
         }
 
         const bestSelectors = await page.evaluate(() => {
@@ -486,10 +496,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         try {
             if (page) {
                 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-                await page.screenshot({ path: path.join(LOG_DIR, `${job.last_step || 'FATAL'}_fail.png`) });
+                const buf = await page.screenshot({ type: 'png' });
+                job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
+                saveJob(job);
             }
-        } catch (screenshotError) {
-            console.error("Failed to take screenshot on error:", screenshotError);
+        } catch (ssError) {
+            console.error("Failed to capture failure screenshot:", ssError);
         }
         if (browser) await browser.close();
         throw e; // Re-throw to be caught by the POST handler

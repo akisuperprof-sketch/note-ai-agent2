@@ -23,6 +23,7 @@ export interface NoteJob {
     note_url: string | null;
     error_code: string | null;
     error_message: string | null;
+    error_screenshot: string | null;
     last_step: string | null;
     scheduled_at: string | null;
     tags: string[];

@@ -975,7 +975,9 @@ export default function Home() {
   const [postLogs, setPostLogs] = useState<{ text: string, time: string }[]>([]);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState("0:00");
-  const [notePostConsoleUrl, setNotePostConsoleUrl] = useState("");
+  const [notePostConsoleUrl, setNotePostConsoleUrl] = useState<string | null>(null);
+  const [errorScreenshot, setErrorScreenshot] = useState<string | null>(null);
+  const [visualDebug, setVisualDebug] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Restore logs from session storage on mount
@@ -1000,7 +1002,7 @@ export default function Home() {
   useEffect(() => {
     if (postLogs.length > 0) sessionStorage.setItem('note_post_logs', JSON.stringify(postLogs));
     sessionStorage.setItem('note_post_status', postStatus);
-    sessionStorage.setItem('note_post_url', notePostConsoleUrl);
+    sessionStorage.setItem('note_post_url', notePostConsoleUrl || "");
   }, [postLogs, postStatus, notePostConsoleUrl]);
 
   useEffect(() => {
@@ -1037,6 +1039,7 @@ export default function Home() {
                 onClick={() => {
                   setPostStatus('idle');
                   setPostLogs([]);
+                  setErrorScreenshot(null);
                   sessionStorage.clear();
                 }}
                 className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-full transition-all"
@@ -1066,7 +1069,7 @@ export default function Home() {
           </div>
           <div
             ref={logContainerRef}
-            className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 max-h-[300px] overflow-y-auto font-mono text-[11px] scrollbar-thin flex flex-col"
+            className="bg-black/40 rounded-2xl p-4 space-y-2 border border-white/5 min-h-[200px] max-h-[800px] overflow-y-auto font-mono text-[11px] scrollbar-thin flex flex-col"
           >
             {postStatus === 'posting' && (
               <div className="flex gap-4 animate-pulse pb-2 mb-2 border-b border-white/5">
@@ -1090,6 +1093,19 @@ export default function Home() {
               );
             })}
           </div>
+
+          {errorScreenshot && (
+            <div className="mt-4 animate-in fade-in zoom-in duration-500">
+              <div className="flex items-center gap-2 mb-2 text-red-400">
+                <AlertCircle size={14} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Failure Evidence (Mode 3 Diagnostic)</span>
+              </div>
+              <div className="rounded-2xl border border-red-500/20 overflow-hidden bg-black shadow-2xl">
+                <img src={errorScreenshot} alt="Failure Screenshot" className="w-full h-auto opacity-80 hover:opacity-100 transition-opacity" />
+              </div>
+              <p className="mt-2 text-[9px] text-white/30 text-right italic">※サーバー上のブラウザが停止した瞬間のキャプチャです</p>
+            </div>
+          )}
         </div>
 
         {postStatus === 'success' && (
@@ -1331,6 +1347,9 @@ export default function Home() {
               if (myJob.status === 'success' && myJob.note_url) {
                 setNotePostConsoleUrl(myJob.note_url);
               }
+              if (myJob.error_screenshot) {
+                setErrorScreenshot(myJob.error_screenshot);
+              }
             }
           }
         }
@@ -1350,7 +1369,8 @@ export default function Home() {
           mode: appMode,
           email: noteEmail,
           password: notePassword,
-          isTest
+          isTest,
+          visualDebug
         }),
       });
 
@@ -2086,6 +2106,20 @@ export default function Home() {
                         </button>
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-2 px-2 py-1">
+                      <input
+                        type="checkbox"
+                        id="mode3-toggle"
+                        checked={visualDebug}
+                        onChange={(e) => setVisualDebug(e.target.checked)}
+                        className="w-3 h-3 rounded border-white/10 bg-black/40 text-orange-500 focus:ring-orange-500/50"
+                      />
+                      <label htmlFor="mode3-toggle" className="text-[10px] font-bold text-white/40 cursor-pointer hover:text-white/60 transition-colors">
+                        開発モード3: 物理オート・デバッグ起動 (Localのみ)
+                      </label>
+                    </div>
+
                     <button
                       onClick={() => handleDraftPost(false)}
                       className="w-full py-4 bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 rounded-2xl text-xs font-black text-white transition-all shadow-xl shadow-orange-500/10 scale-active"
