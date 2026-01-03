@@ -341,83 +341,73 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         update('S05', `Editor Connection Stable (Tags: ${await page.evaluate(() => document.querySelectorAll('*').length)})`);
 
-        // Tutorial Bypass (Aggressive)
-        update('S05', 'Bypassing tutorials/overlays');
+        // Tutorial Bypass (Aggressive & Ghostized)
+        update('S05', 'Ghost Bypass: Clearing overlays...');
         try {
-            await page.waitForTimeout(1000);
-            const overlaySelectors = [
-                'button:has-text("次へ")', 'button:has-text("閉じる")',
-                'button:has-text("スキップ")', 'button:has-text("理解しました")',
-                '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]', '[aria-label="Close"]',
-                'button:has-text("OK")', '.nc-modal__close', '.nc-modal__close-button'
-            ];
-            for (const sel of overlaySelectors) {
-                const btns = await page.locator(sel).all();
-                for (const btn of btns) {
-                    if (await btn.isVisible()) {
-                        await btn.click().catch(() => { });
-                        await page.waitForTimeout(400);
-                    }
-                }
-            }
-
-            // Extra: If a modal blocks everything, force remove it
             await page.evaluate(() => {
-                const modal = document.querySelector('.nc-modal, .nc-tutorial-modal');
-                if (modal) modal.remove();
-                const backdrop = document.querySelector('.nc-modal-backdrop, .nc-overlay');
-                if (backdrop) backdrop.remove();
-                document.body.style.overflow = 'auto'; // Restore scroll
+                // 1. Click all obvious close/next buttons
+                const btnTexts = ["次へ", "閉じる", "スキップ", "理解しました", "OK", "閉じる", "Close"];
+                const allElements = Array.from(document.querySelectorAll('button, div[role="button"], span, a'));
+
+                allElements.forEach((el: any) => {
+                    const txt = (el.textContent || "").trim();
+                    const aria = (el.getAttribute('aria-label') || "").trim();
+                    if (btnTexts.includes(txt) || btnTexts.some(t => aria.includes(t))) {
+                        el.click();
+                    }
+                });
+
+                // 2. Remove known modal classes/IDs that block interaction
+                const blockerSelectors = [
+                    '.nc-modal', '.nc-tutorial-modal', '.nc-modal-backdrop',
+                    '.nc-popover', '.nc-overlay', 'div[class*="Modal"]',
+                    'div[id*="modal"]', 'div[class*="Overlay"]'
+                ];
+                blockerSelectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach((el: any) => el.remove());
+                });
+
+                // 3. Force body scroll if locked
+                document.body.style.overflow = 'auto';
+                document.documentElement.style.overflow = 'auto';
             }).catch(() => { });
 
+            await page.waitForTimeout(1000);
             await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
-        update('S05', 'Analyzing editor state');
-
-        // Wait for Note's heavy SPA to settle
-        try {
-            await page.waitForLoadState('networkidle', { timeout: 10000 });
-        } catch (e) {
-            console.warn("[Action] Network didn't go idle, but checking DOM anyway.");
-        }
+        // Fast responsiveness check
+        update('S05', 'Syncing with Editor state...');
 
         let editorFound = false;
         let lastDiag: any = null;
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 4; i++) {
             lastDiag = await page.evaluate(() => ({
                 tags: document.querySelectorAll('*').length,
                 title: document.title,
                 url: window.location.href,
-                html: document.documentElement.outerHTML.substring(0, 300).replace(/\s+/g, ' ')
+                hasEditor: !!document.querySelector('.ProseMirror, .note-editor, [contenteditable="true"]')
             }));
 
-            if (lastDiag.tags < 50 && i > 0) {
-                update('S05', `Editor frozen? (Tags: ${lastDiag.tags}, Title: "${lastDiag.title || 'Empty'}", URL: ${lastDiag.url})`);
-
-                if (i === 1) {
-                    update('S05', 'Injecting click stimuli');
-                    for (let pt of [{ x: 200, y: 400 }, { x: 400, y: 200 }, { x: 100, y: 100 }]) {
-                        await (page.touchscreen ? page.touchscreen.tap(pt.x, pt.y) : page.mouse.click(pt.x, pt.y)).catch(() => { });
-                    }
-                }
-                if (i === 2) {
-                    update('S05', 'Force reloading page');
-                    await page.reload({ waitUntil: 'networkidle' }).catch(() => { });
-                }
-                await page.waitForTimeout(6000);
-            }
-
-            const el = await page.waitForSelector('textarea, [role="textbox"], .ProseMirror, .note-editor', { timeout: 4000 }).catch(() => null);
-            if (el && await el.isVisible()) {
-                update('S05', 'Analyzing Editor responsiveness');
-                await page.waitForTimeout(5000); // Observational wait: looking at the screen after load
+            if (lastDiag.hasEditor && lastDiag.tags > 100) {
+                update('S05', `Editor Responsive (Tags: ${lastDiag.tags})`);
                 editorFound = true;
                 break;
             }
-            update('S05', `Waiting for Editor mount (${i + 1}/3)`);
 
-            if (i === 1) await page.mouse.click(600, 400).catch(() => { });
+            update('S05', `Waiting for Editor mount (${i + 1}/4) [Tags: ${lastDiag.tags}]`);
+
+            if (i === 1) {
+                update('S05', 'Stimulating SPA behavior...');
+                await page.mouse.click(600, 400).catch(() => { });
+                await page.keyboard.press('Escape').catch(() => { });
+            }
+            if (i === 2 && lastDiag.tags < 100) {
+                update('S05', 'Low content detected. Forcing hydration refresh...');
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => { });
+            }
+
+            await page.waitForTimeout(4000);
         }
 
         if (!editorFound) {
