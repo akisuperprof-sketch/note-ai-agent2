@@ -89,11 +89,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1330-STABLE-STEALTH-PRO";
-        const envName = isVercel ? "SERVER" : "LOCAL_MAC";
+        const VERSION = "2026-01-04-1800-DEBUG-CLOUD-FORCE";
+        const envName = isVercel ? "SERVER" : "LOCAL_MAC_VIA_CLOUD";
         await update('S01', `Engine v${VERSION} ENV ${envName}`);
 
-        if (isVercel && BROWSERLESS_TOKEN) {
+        // ⚠️ DEBUG MODE: ローカルでもTokenがあればBrowserlessに強制接続してテストする
+        if (BROWSERLESS_TOKEN) {
             // Browserless Debugger URL をログに出す（お客様がクラウドの画面を直接見れるように）
             const sessionUrl = `https://chrome.browserless.io/debugger?token=${BROWSERLESS_TOKEN}`;
             await update('S01', `VISUAL DEBUG URL ${sessionUrl}`);
@@ -186,8 +187,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
 
             if (stats.isBlocked || (stats.tags <= 50 && (i === 4 || i === 9))) {
-                if (stats.isBlocked) {
-                    await update('S04', '⚠️ BLOCKED DETECTED - PAUSING 180s FOR CHECK');
+                // 明示的なブロック、またはTAGSが少なすぎて画面が白い場合も一時停止してデバッグ可能にする
+                if (stats.isBlocked || (stats.tags <= 50)) {
+                    await update('S04', '⚠️ SUSPICIOUS STATE (Blank/Block) - PAUSING 180s FOR CHECK');
                     await page.waitForTimeout(180000);
                 }
                 await update('S04', 'REBOOTING TAB');
