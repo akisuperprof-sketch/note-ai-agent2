@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
             try {
                 const body = await req.json();
-                const { title, body: noteBody, tags, scheduled_at, mode, visualDebug } = body;
+                const { title, body: noteBody, tags, scheduled_at, mode, visualDebug, email, password } = body;
 
                 sendUpdate("Connection Established");
 
@@ -83,8 +83,8 @@ export async function POST(req: NextRequest) {
                     body: noteBody,
                     tags,
                     scheduled_at,
-                    email: process.env.NOTE_EMAIL,
-                    password: process.env.NOTE_PASSWORD,
+                    email: email || process.env.NOTE_EMAIL,
+                    password: password || process.env.NOTE_PASSWORD,
                     visualDebug,
                     mode
                 }, sendUpdate);
