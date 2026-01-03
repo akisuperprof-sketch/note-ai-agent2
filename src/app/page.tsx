@@ -184,6 +184,7 @@ function InputForm({
   const [goal, setGoal] = useState("");
   const [targetLength, setTargetLength] = useState(2500);
   const [tone, setTone] = useState("やさしい");
+  const [generateImages, setGenerateImages] = useState(true);
   const [differentiation, setDifferentiation] = useState("");
   const [outlineSupplement, setOutlineSupplement] = useState("");
   const [visualStyle, setVisualStyle] = useState("アニメ塗り");
@@ -212,6 +213,7 @@ function InputForm({
         setReferenceImage(d.referenceImage || null);
         setStrictCharacter(d.strictCharacter ?? true);
         setShowEyecatchTitle(d.showEyecatchTitle ?? true);
+        setGenerateImages(d.generateImages ?? true);
       } catch (e) { console.error("Failed to load persistence", e); }
     }
   }, []);
@@ -222,10 +224,10 @@ function InputForm({
       topic, targetAudience, goal, targetLength, tone,
       differentiation, outlineSupplement, visualStyle, character,
       // referenceImage: Excluded to save space
-      strictCharacter, showEyecatchTitle
+      strictCharacter, showEyecatchTitle, generateImages
     };
     localStorage.setItem("panda_last_inputs", JSON.stringify(d));
-  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, strictCharacter, showEyecatchTitle]);
+  }, [topic, targetAudience, goal, targetLength, tone, differentiation, outlineSupplement, visualStyle, character, strictCharacter, showEyecatchTitle, generateImages]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -274,7 +276,7 @@ function InputForm({
     onSubmit({
       topic, targetAudience, goal, targetLength, tone,
       differentiation, outlineSupplement, visualStyle, character, referenceImage,
-      strictCharacter, showEyecatchTitle
+      strictCharacter, showEyecatchTitle, generateImages
     });
   };
 
@@ -535,6 +537,7 @@ function InputForm({
             onChange={(e) => setTargetLength(Number(e.target.value))}
             className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-orange-500/50 appearance-none transition-colors"
           >
+            <option value={300}>300文字（テスト用）</option>
             <option value={2500}>2,500文字（サクッと）</option>
             <option value={5000}>5,000文字（標準）</option>
             <option value={8000}>8,000文字（長編）</option>
@@ -576,12 +579,33 @@ function InputForm({
           </select>
         </div>
         <div className="space-y-2">
+          <label className="text-sm font-bold text-gray-400">画像生成の設定</label>
+          <div
+            onClick={() => setGenerateImages(!generateImages)}
+            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-all text-white"
+          >
+            <span className="text-sm font-bold">画像を生成する</span>
+            <div className={cn(
+              "w-10 h-5 rounded-full relative transition-colors duration-300",
+              generateImages ? "bg-purple-500" : "bg-white/10"
+            )}>
+              <div className={cn(
+                "absolute top-1 w-3 h-3 rounded-full bg-white transition-all duration-300",
+                generateImages ? "left-6" : "left-1"
+              )} />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-2">
           <label className="text-sm font-bold text-gray-400">アイキャッチの設定</label>
           <div
             onClick={() => setShowEyecatchTitle(!showEyecatchTitle)}
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-all text-white"
+            className={cn(
+              "w-full bg-black/20 border border-white/10 rounded-xl p-3 flex items-center justify-between transition-all text-white",
+              generateImages ? "cursor-pointer hover:bg-white/5" : "opacity-30 cursor-not-allowed"
+            )}
           >
-            <span className="text-sm font-bold">タイトルを画像に入れる</span>
+            <span className="text-sm font-bold">タイトル内容を焼き込む</span>
             <div className={cn(
               "w-10 h-5 rounded-full relative transition-colors duration-300",
               showEyecatchTitle ? "bg-orange-500" : "bg-white/10"
@@ -1581,6 +1605,26 @@ export default function Home() {
         let headingText = "この記事のポイント";
 
         setStatus("image_prompt");
+        if (!data.generateImages) {
+          await addLog("画像生成スキップ設定（テストモード）により完了へ向かいます...", 500);
+
+          const finalMeta = paragraphs.find(p => p.length > 50)?.substring(0, 120) + "..." || "";
+          saveToHistory({
+            displayTitle: extractedTitle,
+            articleText: finalArticle,
+            generatedImage: null,
+            inlineImages: [],
+            score: finalScore,
+            metaDescription: finalMeta,
+            hashtags: currentHashtags,
+            inputs: data
+          });
+          setStatus("done");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          await addLog("完了しました（テキストのみ）", 500);
+          return;
+        }
+
         // --- 1. Header Image ---
         await addLog("アイキャッチ画像を生成中...", 1000);
         try {

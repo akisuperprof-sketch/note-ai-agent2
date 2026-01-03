@@ -82,11 +82,14 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1200-STABLE-EDITOR-DIRECT";
+        const VERSION = "2026-01-04-1300-DEBUG-VISIBILITY";
         const envName = isVercel ? "SERVER" : "LOCAL_MAC";
         await update('S01', `Engine v${VERSION} ENV ${envName}`);
 
         if (isVercel && BROWSERLESS_TOKEN) {
+            // Browserless Debugger URL をログに出す
+            const sessionUrl = `https://chrome.browserless.io/debugger?token=${BROWSERLESS_TOKEN}`;
+            await update('S01', `VISUAL DEBUG URL ${sessionUrl}`);
             browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
         } else {
             const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -118,15 +121,36 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' }).catch(() => { });
         await page.waitForTimeout(3000);
 
-        const loginCheck = await page.evaluate(() => !!document.querySelector('.nc-header__user-menu, .nc-header__profile'));
+        const loginCheck = await page.evaluate(() => !!document.querySelector('.nc-header__user-menu, .nc-header__profile, .nc-header__post-button'));
         if (!loginCheck) {
             await update('S03', 'Login Required');
-            await page.goto('https://note.com/login');
+            await page.goto('https://note.com/login', { waitUntil: 'networkidle' });
             if (content.email && content.password) {
-                await page.fill('input#email', content.email); await page.fill('input#password', content.password);
-                await page.click('button:has-text("ログイン")');
-                await page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 40000 });
+                // セレクターをより堅実に
+                const selectors = {
+                    email: 'input#email, input[name="email"], input[type="email"]',
+                    password: 'input#password, input[name="password"], input[type="password"]',
+                    submit: 'button:has-text("ログイン"), button[type="submit"]'
+                };
+
+                await page.waitForSelector(selectors.email, { timeout: 15000 }).catch(() => {
+                    throw new Error("Login page failed to load correctly in this environment.");
+                });
+
+                await page.fill(selectors.email, content.email);
+                await page.fill(selectors.password, content.password);
+                await page.click(selectors.submit);
+
+                // ログイン後の遷移を待つ（URLが変わるか、Profileが出るまで）
+                await Promise.race([
+                    page.waitForURL((u: URL) => !u.href.includes('/login'), { timeout: 40000 }),
+                    page.waitForSelector('.nc-header__user-menu, .nc-header__profile', { timeout: 40000 })
+                ]);
+
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(await context.storageState()));
+                await update('S03', 'Login Verified');
+            } else {
+                throw new Error("Credentials missing. Please set email/password.");
             }
         }
 
@@ -165,9 +189,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await page.evaluate(({ t, b }: { t: string, b: string }) => {
             const titleEl = document.querySelector('textarea[placeholder*="タイトル"]') as any;
             const bodyEl = document.querySelector('.ProseMirror') as any;
-            if (titleEl) { titleEl.focus(); document.execCommand('insertText', false, t); }
+            if (titleEl) {
+                titleEl.focus();
+                titleEl.value = ''; // 一旦クリア
+                document.execCommand('insertText', false, t);
+                titleEl.dispatchEvent(new Event('input', { bubbles: true })); // Event発火
+            }
             if (bodyEl) {
-                bodyEl.focus(); document.execCommand('selectAll', false, undefined); document.execCommand('delete', false, undefined);
+                bodyEl.focus();
+                document.execCommand('selectAll', false, undefined);
+                document.execCommand('delete', false, undefined);
                 document.execCommand('insertHTML', false, b);
             }
         }, { t: content.title, b: html });
@@ -175,11 +206,22 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await update('S10', 'Saving');
         await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1240, 50));
         await page.waitForTimeout(6000);
+
         job.status = 'success'; job.note_url = page.url();
         await update('S99', 'Complete');
         saveJob(job); await browser.close(); return { status: 'success', note_url: job.note_url };
     } catch (e: any) {
         job.status = 'failed'; job.error_message = e.message;
-        if (browser) await browser.close(); throw e;
+        if (browser) {
+            try {
+                if (page) {
+                    const buf = await page.screenshot({ type: 'png' });
+                    job.error_screenshot = `data:image/png;base64,${buf.toString('base64')}`;
+                    saveJob(job);
+                }
+            } catch (err) { }
+            await browser.close();
+        }
+        throw e;
     }
 }
