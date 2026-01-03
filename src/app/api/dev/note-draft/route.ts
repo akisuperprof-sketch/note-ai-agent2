@@ -259,6 +259,21 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         await page.goto('https://note.com/', { waitUntil: 'load', timeout: 30000 }).catch(() => { });
         await page.waitForTimeout(4000);
 
+        // --- NEW: Aggressive Pre-entry Popup Removal ---
+        await page.evaluate(() => {
+            const popupCloseButtons = Array.from(document.querySelectorAll('button, div, span')).filter(el => {
+                const label = el.getAttribute('aria-label');
+                const text = el.textContent || "";
+                return (label && (label.includes('閉じる') || label.includes('Close'))) ||
+                    text.includes('閉じる') || text.includes('スキップ');
+            });
+            popupCloseButtons.forEach((b: any) => b.click());
+
+            // Forcibly remove known blocker classes
+            const blockers = document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-popover');
+            blockers.forEach((el: any) => el.remove());
+        }).catch(() => { });
+
         // Try to click the "Post" button (the pen mark)
         const postButton = page.locator('.nc-header__post-button, button[aria-label="投稿"], .nc-header__action-post').first();
         if (await postButton.isVisible()) {
@@ -334,7 +349,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                 'button:has-text("次へ")', 'button:has-text("閉じる")',
                 'button:has-text("スキップ")', 'button:has-text("理解しました")',
                 '.nc-tutorial-modal__close', 'div[aria-label="閉じる"]', '[aria-label="Close"]',
-                'button:has-text("OK")'
+                'button:has-text("OK")', '.nc-modal__close', '.nc-modal__close-button'
             ];
             for (const sel of overlaySelectors) {
                 const btns = await page.locator(sel).all();
@@ -345,6 +360,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     }
                 }
             }
+
+            // Extra: If a modal blocks everything, force remove it
+            await page.evaluate(() => {
+                const modal = document.querySelector('.nc-modal, .nc-tutorial-modal');
+                if (modal) modal.remove();
+                const backdrop = document.querySelector('.nc-modal-backdrop, .nc-overlay');
+                if (backdrop) backdrop.remove();
+                document.body.style.overflow = 'auto'; // Restore scroll
+            }).catch(() => { });
+
             await page.mouse.click(1100, 100).catch(() => { });
         } catch (e) { }
 
