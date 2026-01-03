@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
-import playwright from 'playwright-core';
+import { chromium } from 'playwright-core';
 import { getDevSettings, validateDevMode } from '@/lib/server/flags';
 
 const JOBS_DIR = path.join(process.cwd(), '.gemini', 'note-draft-jobs');
@@ -122,9 +122,9 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         const isHeadless = content.visualDebug ? false : !settings.VISUAL_DEBUG;
         if (isServerless) {
-            browser = await playwright.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 15000 });
+            browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 15000 });
         } else {
-            browser = await playwright.launch({ headless: isHeadless, args: ['--no-sandbox'] });
+            browser = await chromium.launch({ headless: isHeadless, args: ['--no-sandbox'] });
         }
 
         const profile = { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36', w: 1440, h: 900 };
@@ -145,7 +145,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
         page = await context.newPage();
         page.on('console', (msg: any) => { if (msg.type() === 'error') onUpdate(`[Browser Error] ${msg.text().substring(0, 80)}`); });
-        page.on('pageerror', (err: any) => onUpdate(`[SPA Crash] ${err.message.substring(0, 80)}`); );
+        page.on('pageerror', (err: any) => onUpdate(`[SPA Crash] ${err.message.substring(0, 80)}`));
 
         await page.setDefaultTimeout(30000);
         update('S02', 'Navigating to note.com');
