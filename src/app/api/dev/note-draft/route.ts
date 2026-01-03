@@ -118,14 +118,20 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     };
 
     try {
-        const VERSION = "2026-01-04-1100-PURE-BROWSERLESS-DIRECT-EDITOR";
+        const VERSION = "2026-01-04-1130-DUAL-ENGINE-CHECK";
         await update('S01', `Engine v${VERSION}`);
 
-        // 成功実績のある「Browserless (if token exists)」構成を完全復元
-        if (BROWSERLESS_TOKEN) {
+        if (isVercel && BROWSERLESS_TOKEN) {
+            // Vercel本番環境ではサーバー型ブラウザを使用
             browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${BROWSERLESS_TOKEN}&--shm-size=2gb&stealth`, { timeout: 35000 });
         } else {
-            browser = await chromium.launch({ headless: !content.visualDebug, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
+            // ローカル（Mac）では本物のGoogle Chromeを使用して挙動を直接チェック
+            const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+            browser = await chromium.launch({
+                headless: false,
+                executablePath: fs.existsSync(chromePath) ? chromePath : undefined,
+                args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--start-maximized']
+            });
         }
 
         const contextOptions: any = {
