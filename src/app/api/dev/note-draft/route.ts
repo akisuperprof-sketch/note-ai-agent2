@@ -100,8 +100,12 @@ export async function POST(req: NextRequest) {
 // --- Main Engine ---
 async function runNoteDraftAction(job: NoteJob, content: { title: string, body: string, tags?: string[], scheduled_at?: string, email?: string, password?: string, visualDebug?: boolean, mode?: string }, onUpdate: (step: string) => void) {
     job.status = 'running';
-    const update = (stepId: string, stepName: string) => {
-        const fullStep = `${stepId}: ${stepName}`;
+    const update = async (stepId: string, stepName: string) => {
+        let currentUrl = '';
+        if (page) {
+            try { currentUrl = ` [URL:${page.url().substring(0, 50)}]`; } catch (e) { }
+        }
+        const fullStep = `${stepId}: ${stepName}${currentUrl}`;
         job.last_step = fullStep;
         saveJob(job);
         onUpdate(fullStep);
@@ -111,8 +115,8 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
     let page: any;
 
     try {
-        const VERSION = "2026-01-04-0650-PROCEDURE-PROTOCOL";
-        update('S01', `Engine v${VERSION}`);
+        const VERSION = "2026-01-04-0655-URL-LOGGING";
+        await update('S01', `Engine v${VERSION}`);
 
         const settings = getDevSettings();
         const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || process.env.BROWSERLESS_TOKEN;
@@ -136,7 +140,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         page = await context.newPage();
 
         await page.setDefaultTimeout(35000);
-        update('S02', 'Accessing note.com');
+        await update('S02', 'Accessing note.com');
         await page.goto('https://note.com/', { waitUntil: 'load' }).catch(() => { });
         await page.waitForTimeout(4000);
 
@@ -145,7 +149,7 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         let isGuest = await page.evaluate((sel: string) => !document.querySelector(sel), loggedInSelector);
 
         if (isGuest || page.url().includes('/login')) {
-            update('S03', 'Auth Triggered.');
+            await update('S03', 'Auth Triggered.');
             if (!page.url().includes('/login')) await page.goto('https://note.com/login', { waitUntil: 'load' });
 
             if (content.email && content.password) {
@@ -157,12 +161,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
 
                 const fullState = await context.storageState();
                 fs.writeFileSync(SESSION_FILE, JSON.stringify(fullState));
-                update('S03', 'Login success.');
+                await update('S03', 'Login success.');
             } else { throw new Error("Auth required but credentials missing"); }
         }
 
         // --- S04: Editor Entry via "Procedure Manual" Protocol ---
-        update('S04', 'Entering Editor Canvas...');
+        await update('S04', 'Entering Editor Canvas...');
         if (!page.url().includes('editor.note.com')) {
             // 手順書に則り、トップからの遷移を試みる
             await page.click('.nc-header__post-button').catch(() => { });
@@ -177,10 +181,10 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         for (let i = 0; i < 8; i++) {
             const tags = await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0);
             const hasEditor = await page.evaluate(() => !!document.querySelector('.ProseMirror'));
-            update('S04', `Sync ${i + 1}/8: [Tags:${tags}] [URL:${page.url().substring(0, 40)}]`);
+            await update('S04', `Sync ${i + 1}/8: [Tags:${tags}]`);
 
             if (tags > 180 && hasEditor) {
-                update('S04', 'Hydration Complete.');
+                await update('S04', 'Hydration Complete.');
                 editorBound = true;
                 break;
             }
@@ -196,12 +200,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         if (!editorBound) throw new Error("Editor hydration failed.");
 
         // --- S100: Final Content Injection (Referencing Manual) ---
-        update('S05', 'Clearing Overlays...');
+        await update('S05', 'Clearing Overlays...');
         await page.evaluate(() => {
             document.querySelectorAll('.nc-modal, .nc-popover, .nc-modal-backdrop, [class*="modal"]').forEach(el => el.remove());
         }).catch(() => { });
 
-        update('S07', 'Injecting via insertHTML Protocol...');
+        await update('S07', 'Injecting via insertHTML Protocol...');
         const bodyHtml = mdToHtml(content.body);
 
         await page.evaluate(({ t, b }: { t: string, b: string }) => {
@@ -225,12 +229,12 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
             }
         }, { t: content.title, b: bodyHtml });
 
-        update('S10', 'Saving Draft.');
+        await update('S10', 'Saving Draft.');
         await page.click('button:has-text("下書き保存")').catch(() => page.mouse.click(1240, 50));
         await page.waitForTimeout(5000);
 
         job.status = 'success'; job.note_url = page.url();
-        update('S99', 'Success.');
+        await update('S99', 'Success.');
         saveJob(job);
         await browser.close();
         return { status: 'success', note_url: job.note_url };
