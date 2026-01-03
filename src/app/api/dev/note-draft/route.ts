@@ -269,8 +269,16 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
         update('S04', 'Entering Editor (Pen Mode)...');
 
         // Go home first to ensure fresh state
-        await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { });
-        await page.waitForTimeout(5000);
+        await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => { });
+
+        // Wait for the header with post button to appear (more patient)
+        try {
+            await page.waitForSelector('.nc-header__post-button, button[aria-label="投稿"], .nc-header__create-button', { timeout: 8000 });
+        } catch (e) {
+            update('S04', 'Header loading slow. Checking state...');
+        }
+
+        await page.waitForTimeout(3000);
 
         // --- Aggressive Pre-entry Popup Removal ---
         await page.evaluate(() => {
@@ -281,35 +289,47 @@ async function runNoteDraftAction(job: NoteJob, content: { title: string, body: 
                     text.includes('閉じる') || text.includes('スキップ') || text.includes('×');
             });
             popupCloseButtons.forEach((b: any) => b.click());
-            // Remove known blockers
             document.querySelectorAll('.nc-modal, .nc-tutorial-modal, .nc-popover, .nc-modal-backdrop').forEach((el: any) => el.remove());
         }).catch(() => { });
 
-        // Try to click the "Post" button (the pen mark)
-        const postButton = page.locator('.nc-header__post-button, button[aria-label="投稿"], .nc-header__action-post').first();
+        // Try to click the "Post" button
+        const postButton = page.locator('.nc-header__post-button, button[aria-label="投稿"], .nc-header__action-post, .nc-header__create-button').first();
         if (await postButton.isVisible()) {
             update('S04', 'Clicking Post Button...');
-            await postButton.click().catch(() => { });
-            await page.waitForTimeout(3000); // Wait for menu animation
+            await postButton.click({ force: true }).catch(() => { });
+            await page.waitForTimeout(3000);
 
-            // Look for "テキスト" (Text) in the menu
             const textOption = page.locator('a[href="/notes/new"], button:has-text("テキスト"), [data-type="text"], .nc-post-menu__item-text').first();
             if (await textOption.isVisible()) {
                 update('S04', 'Selecting "Text" (記事作成)...');
                 await textOption.click().catch(() => { });
             } else {
-                update('S04', 'Menu stall. Directing to creation URL...');
+                update('S04', 'Menu timeout. Directing to creation URL...');
                 await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
             }
         } else {
-            update('S04', 'Pen mark not visible. Using direct entry...');
+            update('S04', 'Pen mark not found. Using direct entry...');
             await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' }).catch(() => { });
         }
+
+        // --- Stabilization Wait: Let the navigation settle before evaluation loop ---
+        await page.waitForTimeout(3000);
 
         let redirectSuccess = false;
         for (let i = 0; i < 15; i++) {
             const currentUrl = page.url();
-            const tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
+
+            // Defensive evaluation to avoid "Execution context was destroyed"
+            let tagCount = 0;
+            try {
+                tagCount = await page.evaluate(() => document.querySelectorAll('*').length);
+            } catch (evalErr: any) {
+                if (evalErr.message.includes('context was destroyed')) {
+                    update('S04', 'Synchronizing with navigation...');
+                    await page.waitForTimeout(3000);
+                    continue;
+                }
+            }
 
             // SUCCESS CONDITION: URL has a note ID (n...) or is on editor subdomain
             const isEditUrl = /\/n[a-z0-9]+\/edit/.test(currentUrl) || currentUrl.includes('editor.note.com');
