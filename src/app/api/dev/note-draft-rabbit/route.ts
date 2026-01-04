@@ -238,7 +238,8 @@ export async function POST(req: NextRequest) {
 
                         // 3. Upload to Note
                         sendUpdate('Rabbit: Uploading to note.com...');
-                        const uploadRes = await fetch('https://note.com/api/v1/upload_image', {
+                        // Endpoint correction: /api/v1/images is the standard one for image assets
+                        const uploadRes = await fetch('https://note.com/api/v1/images', {
                             method: 'POST',
                             headers: {
                                 // removing Content-Type to let fetch set the boundary
