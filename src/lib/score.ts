@@ -16,6 +16,7 @@ export type ArticleScore = {
         logicality: ScoreDetail;
         empathy: ScoreDetail;
         uniqueness: ScoreDetail;
+        titleQuality: ScoreDetail; // New
     };
     metrics: {
         actualLength: number;
@@ -29,6 +30,8 @@ export type ArticleScore = {
         logicKeywords: number;
         empathyKeywords: number;
         uniqueKeywords: number;
+        titleHasSubtitle: boolean; // New
+        titlePowerWordCount: number; // New
     };
 };
 
@@ -37,7 +40,9 @@ export function calculateArticleScore(
     targetLength: number = 5000
 ): ArticleScore {
     const lines = articleText.split("\n");
-    const title = lines.find((l) => l.trim().length > 0) || "";
+    // Normalize logic: Title is often the first H1 or first non-empty line
+    let title = lines.find((l) => l.startsWith("# ")) || lines.find((l) => l.trim().length > 0) || "";
+    title = title.replace(/^# /, "").trim();
 
     const actualLength = articleText.replace(/\s/g, "").length;
 
@@ -72,6 +77,12 @@ export function calculateArticleScore(
     const logicWords = ["なぜなら", "したがって", "つまり", "しかし", "ゆえに", "結果として", "根拠"];
     const empathyWords = ["悩み", "不安", "感じます", "ですね", "でしょう", "気持ち", "ではないでしょうか"];
     const uniqueWords = ["私の", "僕の", "体験", "経験", "オリジナル", "独自", "発見した"];
+
+    // Title Analysis
+    const splitters = ['〜', ' - ', '：', '？ ', '【', '】'];
+    const titleHasSubtitle = splitters.some(s => title.includes(s));
+    const powerWords = ["保存版", "完全", "攻略", "教科書", "ロードマップ", "始め方", "裏技", "最強", "公開", "マップ"];
+    const titlePowerWordCount = powerWords.reduce((count, word) => count + (title.includes(word) ? 1 : 0), 0);
 
     const countMatches = (words: string[]) =>
         words.reduce((count, word) => count + (articleText.split(word).length - 1), 0);
@@ -125,15 +136,24 @@ export function calculateArticleScore(
     if (titleLength >= 28 && titleLength <= 45) seoScore = 100;
     else if (titleLength >= 20 && titleLength <= 60) seoScore = 80;
 
+    // タイトル品質・視認性 (New)
+    let titleQualityScore = 60;
+    if (titleHasSubtitle) titleQualityScore += 20; // 構造化されている
+    if (titlePowerWordCount > 0) titleQualityScore += Math.min(titlePowerWordCount * 10, 20); // パワーワードあり
+    if (titleLength > 50) titleQualityScore -= 20; // 長すぎて視認性低下
+    titleQualityScore = Math.min(Math.max(titleQualityScore, 0), 100);
+
+    // Total Calculation (Weight adjustment)
     const total = Math.round(
         lengthScore * 0.1 +
-        readabilityScore * 0.15 +
+        readabilityScore * 0.1 +
         structureScore * 0.1 +
         richnessScore * 0.1 +
         seoScore * 0.1 +
         logicalityScore * 0.15 +
-        empathyScore * 0.15 +
-        uniquenessScore * 0.15
+        empathyScore * 0.1 +
+        uniquenessScore * 0.1 +
+        titleQualityScore * 0.15 // Added 15% weight
     );
 
     const summary =
@@ -151,6 +171,7 @@ export function calculateArticleScore(
             logicality: { score: logicalityScore, value: logicKeywords, label: "論理性" },
             empathy: { score: empathyScore, value: empathyKeywords, label: "共感性" },
             uniqueness: { score: uniquenessScore, value: uniqueKeywords, label: "独自性" },
+            titleQuality: { score: titleQualityScore, value: titlePowerWordCount, label: "タイトル品質" },
         },
         metrics: {
             actualLength,
@@ -164,6 +185,8 @@ export function calculateArticleScore(
             logicKeywords,
             empathyKeywords,
             uniqueKeywords,
+            titleHasSubtitle,
+            titlePowerWordCount
         },
     };
 }

@@ -7,7 +7,7 @@ import {
   Eye, BarChart3, Download, Search, Zap,
   AlertTriangle, // Added for Dev Mode Warning
   Send, // Added for Post Button
-  Pen, FileText, Terminal, ExternalLink, Loader2, CheckCircle
+  Pen, FileText, Terminal, ExternalLink, Loader2, CheckCircle, Trash2
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
@@ -1157,43 +1157,86 @@ export default function Home() {
       ctx.drawImage(img, 0, 0);
 
       if (type === 'eyecatch') {
-        // Eyecatch Style: Bold Title Overlay (Bottom 1/3)
-        // Background Gradient
-        const grad = ctx.createLinearGradient(0, canvas.height * 0.66, 0, canvas.height);
+        // Eyecatch Style: Modern Bold Layout
+        // Gradient Background
+        const grad = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
         grad.addColorStop(0, "rgba(0,0,0,0)");
-        grad.addColorStop(1, "rgba(0,0,0,0.92)");
+        grad.addColorStop(1, "rgba(0,0,0,0.95)");
         ctx.fillStyle = grad;
-        ctx.fillRect(0, canvas.height * 0.66, canvas.width, canvas.height * 0.34);
+        ctx.fillRect(0, canvas.height * 0.5, canvas.width, canvas.height * 0.5);
 
-        // Text Settings
-        const fontSize = Math.floor(canvas.width * 0.05);
-        ctx.font = `bold ${fontSize}px 'Hiragino Mincho ProN', 'Yu Mincho', serif`;
+        // Title Parsing Logic
+        // Detect subtypes: "Main Title 〜Sub Title〜", "【Tag】Main Title", etc.
+        let mainTitle = title;
+        let subTitle = "";
+
+        // Common delimiters for splitting
+        const splitters = ['〜', ' - ', '：', '？ '];
+        for (const s of splitters) {
+          if (title.includes(s)) {
+            const parts = title.split(s);
+            // Heuristic: If split results in a very long subtitle, maybe it's the split point
+            if (parts[0].length > 5) {
+              mainTitle = parts[0];
+              subTitle = s + parts.slice(1).join(s); // Keep delimiter for context usually
+              break;
+            }
+          }
+        }
+        // Special case: brackets at start
+        if (title.startsWith('【') && title.includes('】')) {
+          const endBracket = title.indexOf('】');
+          // If the bracket part is short (tag), keep it. If it's long, treat as main? 
+          // Better strategy: Just simple Main/Sub splitting based on length if no delimiter.
+        }
+
+        // Font Settings
+        const mainFontSize = Math.floor(canvas.width * 0.055); // 5.5% width
+        const subFontSize = Math.floor(canvas.width * 0.035);  // 3.5% width
+
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.shadowColor = "rgba(0,0,0,0.8)";
-        ctx.shadowBlur = 15;
 
-        // Word Wrap
+        // Shadow
+        ctx.shadowColor = "rgba(0,0,0,1)";
+        ctx.shadowBlur = 20;
+
+        // Draw Main Title (Wrapped)
+        ctx.font = `bold ${mainFontSize}px 'Hiragino Mincho ProN', 'Yu Mincho', serif`;
         const maxWidth = canvas.width * 0.9;
-        const words = title.split('');
-        let line = '';
-        let lines = [];
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n];
-          if (ctx.measureText(testLine).width > maxWidth && n > 0) {
-            lines.push(line);
-            line = words[n];
-          } else { line = testLine; }
-        }
-        lines.push(line);
 
-        // Draw
-        let lineHeight = Math.floor(fontSize * 1.2);
-        let startY = canvas.height - (canvas.height * 0.05) - ((lines.length - 1) * lineHeight);
-        lines.forEach((l, i) => {
-          ctx.fillText(l, canvas.width / 2, startY + (i * lineHeight));
-        });
+        const drawWrappedLines = (text: string, yPos: number, fontSize: number): number => {
+          const words = text.split('');
+          let line = '';
+          let lines = [];
+          for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n];
+            if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+              lines.push(line);
+              line = words[n];
+            } else { line = testLine; }
+          }
+          lines.push(line);
+
+          const lineHeight = fontSize * 1.4;
+          lines.forEach((l, i) => {
+            ctx.fillText(l, canvas.width / 2, yPos + (i * lineHeight));
+          });
+          return lines.length * lineHeight;
+        };
+
+        // Calculate positions (Bottom aligned)
+        let currentY = canvas.height * 0.7;
+
+        // Draw Main
+        const mainHeight = drawWrappedLines(mainTitle, currentY, mainFontSize);
+
+        // Draw Sub (if exists)
+        if (subTitle) {
+          ctx.font = `bold ${subFontSize}px 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif`;
+          // Add some spacing
+          drawWrappedLines(subTitle, currentY + mainHeight + (canvas.height * 0.02), subFontSize);
+        }
       } else {
         // Inline Image Logic
         const barHeight = canvas.height * 0.15;
@@ -2441,6 +2484,18 @@ export default function Home() {
                                     className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white/70 transition-all border border-white/5"
                                   >
                                     Copy Logs
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm("ログを消去してリセットしますか？")) {
+                                        setPostStatus('idle');
+                                        setPostLogs([]);
+                                      }
+                                    }}
+                                    className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 rounded text-[10px] text-red-400/70 transition-all border border-red-500/5 flex items-center gap-1"
+                                    title="Reset Status"
+                                  >
+                                    <Trash2 size={10} />
                                   </button>
                                 </div>
                               </div>
