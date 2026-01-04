@@ -225,19 +225,11 @@ export async function POST(req: NextRequest) {
                 sendUpdate(`Rabbit: Body Len: ${bodyLen}, HTML Len: ${htmlContent.length}`);
                 sendUpdate(`Rabbit: HTML Preview: ${htmlContent.substring(0, 50)}...`);
 
-                // --- Image Logic (Inline Embedding Strategy) ---
-                // API upload failed (404/403), so we embed the image directly into the HTML as a fallback.
-                // Note: note.com editor often auto-fetches this URL when saved as draft involved external images.
+                // --- Image Logic ---
+                // Disable image embedding for now as it causes 422 errors with external URLs.
+                // Users should upload images manually or use the browser extension in future.
                 let eyecatchKey: string | null = null;
-
-                if (imageUrl) {
-                    sendUpdate('Rabbit: Embedding Image to Body (Inline Fallback)...');
-                    // Prepend image to HTML (Header Image Style)
-                    htmlContent = `<figure><img src="${imageUrl}" alt="header_image"></figure>\n\n` + htmlContent;
-                    sendUpdate('Rabbit: Image embedded at the top of content.');
-                } else {
-                    sendUpdate('Rabbit: No Image URL provided.');
-                }
+                sendUpdate('Rabbit: Image embedding disabled (preventing 422 Error).');
 
                 // --- Note Creation ---
                 const apiData = {
