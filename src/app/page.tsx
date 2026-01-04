@@ -7,11 +7,11 @@ import {
   Eye, BarChart3, Download, Search, Zap,
   AlertTriangle, // Added for Dev Mode Warning
   Send, // Added for Post Button
-  Pen, FileText, Terminal, ExternalLink
+  Pen, FileText, Terminal, ExternalLink, Loader2, CheckCircle
 } from "lucide-react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { calculateArticleScore, ArticleScore } from "@/lib/score";
-import { NoteJob } from "@/lib/server/jobs";
+import type { NoteJob } from "@/lib/server/jobs";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -24,7 +24,7 @@ type AppStatus = "idle" | "outline" | "writing" | "polish" | "scoring" | "image_
 
 // --- Components ---
 
-function Header({ appMode, setAppMode }: { appMode?: "production" | "development", setAppMode?: (m: "production" | "development") => void }) {
+function Header({ appMode, setAppMode }: { appMode?: "production" | "development" | "rabbit", setAppMode?: (m: "production" | "development" | "rabbit") => void }) {
   return (
     <div className="flex justify-between items-center mb-12 animate-in fade-in slide-in-from-top-4 duration-700">
       <div className="flex gap-2 items-center text-white/80">
@@ -41,20 +41,24 @@ function Header({ appMode, setAppMode }: { appMode?: "production" | "development
       {setAppMode && (
         <div className="flex items-center gap-2 bg-black/40 rounded-full p-1 border border-white/10">
           <button
-            onClick={() => setAppMode("production")}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              setAppMode("production");
+            }}
             className={cn(
               "px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1",
               appMode === "production" ? "bg-green-500/20 text-green-400 shadow-sm" : "text-gray-500 hover:text-gray-300"
             )}
           >
             <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "production" ? "bg-green-500" : "bg-gray-600")} />
-            Production
+            Prod
           </button>
           <button
-            onClick={() => {
-              if (confirm("【警告】開発モードに切り替えますか？\n\n・自動投稿機能の検証が可能になります\n・誤操作に十分注意してください")) {
-                setAppMode("development");
-              }
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              setAppMode("development");
             }}
             className={cn(
               "px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1",
@@ -62,7 +66,21 @@ function Header({ appMode, setAppMode }: { appMode?: "production" | "development
             )}
           >
             <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "development" ? "bg-red-500" : "bg-gray-600")} />
-            Dev Mode
+            Dev
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              setAppMode("rabbit");
+            }}
+            className={cn(
+              "px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1",
+              appMode === "rabbit" ? "bg-pink-500/20 text-pink-400 shadow-sm" : "text-gray-500 hover:text-gray-300"
+            )}
+          >
+            <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "rabbit" ? "bg-pink-500" : "bg-gray-600")} />
+            Rabbit
           </button>
         </div>
       )}
@@ -973,6 +991,7 @@ export default function Home() {
   const [showHelp, setShowHelp] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [status, setStatus] = useState<AppStatus>("idle");
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [inputs, setInputs] = useState<any>(null);
   const [articleText, setArticleText] = useState("");
@@ -993,7 +1012,7 @@ export default function Home() {
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
   // Mode Management
-  const [appMode, setAppMode] = useState<"production" | "development">("production");
+  const [appMode, setAppMode] = useState<"production" | "development" | "rabbit">("production");
   const [postedArticles, setPostedArticles] = useState<Set<string>>(new Set());
   const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
   const [postLogs, setPostLogs] = useState<{ text: string, time: string }[]>([]);
@@ -1213,7 +1232,7 @@ export default function Home() {
   // --- Safety & Posting Logic (Dev Mode Only) ---
   const checkSafetyLock = (articleId: string): { safe: boolean, reason?: string } => {
     // 1. Check Mode
-    if (appMode !== "development") return { safe: false, reason: "Production Mode Restriction" };
+    if (appMode !== "development" && appMode !== "rabbit") return { safe: false, reason: "Production Mode Restriction" };
     // 2. Check Duplication
     if (postedArticles.has(articleId)) return { safe: false, reason: "Duplicate Post Prevention" };
     // 3. Check Status
@@ -1224,7 +1243,7 @@ export default function Home() {
 
   const [jobs, setJobs] = useState<NoteJob[]>([]);
 
-  const handleDraftPost = async (isTest: boolean = false, overrideMode?: string) => {
+  const handlePostArticle = async (isTest: boolean = false, overrideMode?: string) => {
     if (!isTest && !articleText) {
       alert("記事が生成されていません");
       return;
@@ -1275,7 +1294,7 @@ export default function Home() {
             setPostLogs(prev => {
               const base = `${myJob.last_step || 'unknown'}`;
               if (!prev.find(p => p.text === base)) {
-                return [...prev, { text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }];
+                return [{ text: base, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }, ...prev];
               }
               return prev;
             });
@@ -1295,10 +1314,17 @@ export default function Home() {
       } catch (e) { console.error("Polling failed", e); }
     }, 2500);
 
+    // Start Main API Request
     try {
-      const res = await fetch("/api/dev/note-draft", {
+      // Endpoint Switching
+      const endpoint = mode === 'rabbit' ? '/api/dev/note-draft-rabbit' : '/api/dev/note-draft';
+
+      abortControllerRef.current = new AbortController();
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortControllerRef.current.signal,
         body: JSON.stringify({
           article_id: articleId,
           request_id: requestId,
@@ -1333,7 +1359,7 @@ export default function Home() {
             const data = JSON.parse(line);
             if (data.error) {
               setPostStatus("error");
-              setPostLogs(prev => [...prev, { text: `[ERROR] ${data.error}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+              setPostLogs(prev => [{ text: `[ERROR] ${data.error}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }, ...prev]);
               reader.cancel();
               break;
             }
@@ -1343,7 +1369,7 @@ export default function Home() {
               setPostLogs(prev => {
                 if (!prev.find(p => p.text === base)) {
                   const now = new Date().toLocaleTimeString('ja-JP', { hour12: false });
-                  return [...prev, { text: base, time: now }];
+                  return [{ text: base, time: now }, ...prev];
                 }
                 return prev;
               });
@@ -1367,7 +1393,7 @@ export default function Home() {
     } catch (e: any) {
       setPostStatus("error");
       const errorMsg = e instanceof Error ? e.message : String(e);
-      setPostLogs(prev => [...prev, { text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }]);
+      setPostLogs(prev => [{ text: `[ERROR] ${errorMsg}`, time: new Date().toLocaleTimeString('ja-JP', { hour12: false }) }, ...prev]);
     } finally {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
@@ -2090,13 +2116,13 @@ export default function Home() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <button
-                        onClick={() => handleDraftPost(false)}
+                        onClick={() => handlePostArticle(false)}
                         className="py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[10px] font-black text-white transition-all scale-active"
                       >
                         MODE 2/3 EXECUTE
                       </button>
                       <button
-                        onClick={() => handleDraftPost(false, 'development_v4')}
+                        onClick={() => handlePostArticle(false, 'development_v4')}
                         className="py-4 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 rounded-2xl text-[10px] font-black text-white transition-all shadow-xl shadow-purple-500/20 scale-active"
                       >
                         MODE 4 GHOST INJECT
@@ -2354,33 +2380,99 @@ export default function Home() {
                       <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
                         <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
                           <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
-                          {inputs?.showEyecatchTitle !== false && !isTitleFabMode && (
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end items-center pb-6 md:pb-10 px-4 md:px-8 text-center group">
-                              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                                <button onClick={handleRetryEyecatch} className="p-2 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm transition-all" title="この画像を再作成">
-                                  <RotateCcw size={18} />
-                                </button>
-                              </div>
-                              <h1 className="text-lg md:text-3xl font-serif font-black text-white leading-[1.3] tracking-tighter drop-shadow-2xl">
-                                {displayTitle}
-                              </h1>
-                            </div>
-                          )}
-                          {/* If burn-in is ON, only show retry button to keep UI clean */}
-                          {isTitleFabMode && (
-                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                              <button onClick={handleRetryEyecatch} className="p-2 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm transition-all" title="この画像を再作成">
-                                <RotateCcw size={18} />
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </div>
-                      {inputs?.showEyecatchTitle === false && (
-                        <div className="px-6 py-4 border-l-4 border-orange-500 bg-white/5 rounded-r-xl">
-                          <h2 className="text-xl md:text-2xl font-serif font-black text-white leading-relaxed">
-                            {displayTitle}
-                          </h2>
+
+                      {/* Note Auto Post Button (Dev/Rabbit Mode Only) */}
+                      {(appMode === 'development' || appMode === 'rabbit') && (
+                        <div className="bg-black/30 p-6 rounded-2xl border border-white/10 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-white font-bold flex items-center gap-2">
+                              {appMode === 'rabbit' ? '🐰 うさぎモード自動投稿' : '🤖 自動投稿デバッグ'}
+                              {postStatus === 'posting' && <Loader2 className="animate-spin text-orange-400" size={16} />}
+                            </h4>
+                            {postStatus === 'idle' || postStatus === 'error' ? (
+                              <button
+                                onClick={() => handlePostArticle()}
+                                disabled={!articleText}
+                                className={cn(
+                                  "px-6 py-2 rounded-full font-bold text-sm transition-all flex items-center gap-2",
+                                  appMode === 'rabbit'
+                                    ? "bg-pink-500 hover:bg-pink-600 text-white shadow-lg shadow-pink-500/20"
+                                    : "bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20"
+                                )}
+                              >
+                                <Send size={16} />
+                                {appMode === 'rabbit' ? 'APIで高速投稿' : 'Browserlessで投稿'}
+                              </button>
+                            ) : postStatus === 'success' ? (
+                              <div className="flex items-center gap-2 text-green-400 font-bold bg-green-900/30 px-4 py-2 rounded-full border border-green-500/30">
+                                <CheckCircle size={16} /> 投稿完了
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => abortControllerRef.current?.abort()}
+                                className="px-4 py-2 rounded-full bg-red-500/20 text-red-400 font-bold text-sm hover:bg-red-500/30 transition-all border border-red-500/30"
+                              >
+                                中止する
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Post Logs Console */}
+                          {(postStatus !== 'idle' || postLogs.length > 0) && (
+                            <div className="bg-black/80 rounded-xl p-4 font-mono text-xs overflow-hidden border border-white/5">
+                              <div className="flex justify-between items-center mb-2 text-white/40 border-b border-white/5 pb-2">
+                                <span>CONSOLE LOGS</span>
+                                <div className="flex gap-4">
+                                  <span>⏱ {elapsedTime}</span>
+                                  {notePostConsoleUrl && (
+                                    <a href={notePostConsoleUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-1">
+                                      <ExternalLink size={10} /> Debug View
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="h-32 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent pr-2" ref={(el) => {
+                                if (el) el.scrollTop = el.scrollHeight;
+                              }}>
+                                {postLogs.map((log, i) => (
+                                  <div key={i} className="text-gray-300 break-all">
+                                    <span className="text-white/30 mr-2">[{log.time}]</span>
+                                    {log.text}
+                                  </div>
+                                ))}
+                                {postStatus === 'posting' && (
+                                  <div className="text-orange-400 animate-pulse">_</div>
+                                )}
+                              </div>
+
+                              {/* Error Screenshot Preview */}
+                              {errorScreenshot && (
+                                <div className="mt-4 border-t border-white/10 pt-4">
+                                  <p className="text-red-400 font-bold mb-2 text-[10px] uppercase tracking-wider">Error Screenshot Capture:</p>
+                                  <div className="relative rounded-lg overflow-hidden border border-red-500/30 group">
+                                    <img src={`data:image/png;base64,${errorScreenshot}`} alt="Error Screenshot" className="w-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+                                    <a
+                                      href={`data:image/png;base64,${errorScreenshot}`}
+                                      download="error-screenshot.png"
+                                      className="absolute bottom-2 right-2 bg-red-600/80 text-white text-[10px] px-3 py-1.5 rounded-full hover:bg-red-500 font-bold backdrop-blur-sm"
+                                    >
+                                      Save Image
+                                    </a>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Visual Debug Instruction */}
+                              {visualDebug && postStatus === 'posting' && (
+                                <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-yellow-300 text-[10px] animate-pulse">
+                                  ⚠️ Visual Debug Pause Active: Please check the opened URL manually.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2524,96 +2616,101 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            )}
+            )
+            }
 
-            {activeTab === "preview" && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-500 pb-20 rounded-[32px] overflow-hidden shadow-2xl border border-orange-200/20">
-                <div className="bg-gradient-to-r from-orange-100 to-red-100 p-4 flex items-center justify-between border-b border-orange-200">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">🐾</span>
-                    <span className="text-orange-900 font-black text-xs tracking-tighter">note AI AGENT - Panda Preview Mode</span>
-                  </div>
-                  <div className="text-[10px] text-orange-700 font-bold opacity-50 uppercase tracking-widest">Original Creative Output</div>
-                </div>
-
-                <div className="bg-[#FAF7F2] p-8 md:p-12 space-y-12">
-                  {generatedImage && (
-                    <div className="relative group">
-                      <img src={generatedImage} className="w-full aspect-video object-cover rounded-2xl shadow-lg border-4 border-white" />
-                      <div className="absolute top-4 left-4 bg-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">Panda AI Illustration</div>
+            {
+              activeTab === "preview" && (
+                <div className="animate-in fade-in slide-in-from-right-4 duration-500 pb-20 rounded-[32px] overflow-hidden shadow-2xl border border-orange-200/20">
+                  <div className="bg-gradient-to-r from-orange-100 to-red-100 p-4 flex items-center justify-between border-b border-orange-200">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">🐾</span>
+                      <span className="text-orange-900 font-black text-xs tracking-tighter">note AI AGENT - Panda Preview Mode</span>
                     </div>
-                  )}
+                    <div className="text-[10px] text-orange-700 font-bold opacity-50 uppercase tracking-widest">Original Creative Output</div>
+                  </div>
 
-                  <div className="space-y-8 max-w-xl mx-auto">
-                    <h1 className="text-3xl md:text-5xl font-serif font-black text-gray-900 leading-[1.2] tracking-tight text-center md:text-left">
-                      {displayTitle}
-                    </h1>
-
-                    <div className="flex gap-4 items-center border-y border-orange-200/50 py-6">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-xl shadow-md border-2 border-white">
-                        🐾
+                  <div className="bg-[#FAF7F2] p-8 md:p-12 space-y-12">
+                    {generatedImage && (
+                      <div className="relative group">
+                        <img src={generatedImage} className="w-full aspect-video object-cover rounded-2xl shadow-lg border-4 border-white" />
+                        <div className="absolute top-4 left-4 bg-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">Panda AI Illustration</div>
                       </div>
-                      <div>
-                        <div className="font-black text-gray-900 flex items-center gap-2 font-serif">
-                          note記事つくレッサーパンダ
-                          <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded-md">Official Agent</span>
+                    )}
+
+                    <div className="space-y-8 max-w-xl mx-auto">
+                      <h1 className="text-3xl md:text-5xl font-serif font-black text-gray-900 leading-[1.2] tracking-tight text-center md:text-left">
+                        {displayTitle}
+                      </h1>
+
+                      <div className="flex gap-4 items-center border-y border-orange-200/50 py-6">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-xl shadow-md border-2 border-white">
+                          🐾
                         </div>
-                        <div className="text-gray-500 text-xs font-serif italic">2025.12.31 · 10 min read · Creative Commons</div>
+                        <div>
+                          <div className="font-black text-gray-900 flex items-center gap-2 font-serif">
+                            note記事つくレッサーパンダ
+                            <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded-md">Official Agent</span>
+                          </div>
+                          <div className="text-gray-500 text-xs font-serif italic">2025.12.31 · 10 min read · Creative Commons</div>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="prose prose-stone max-w-[850px] mx-auto text-base md:text-lg leading-relaxed md:leading-[1.8] text-gray-800 font-serif antialiased px-2">
-                      <div className="whitespace-pre-wrap break-words indent-4">
-                        {articleText.split('\n\n').map((para, i) => {
-                          const isHeading = para.startsWith('##');
-                          const headingText = isHeading ? para.replace('##', '').trim() : '';
-                          const associatedImage = isHeading ? inlineImages.find(img => img.heading === headingText) : null;
+                      <div className="prose prose-stone max-w-[850px] mx-auto text-base md:text-lg leading-relaxed md:leading-[1.8] text-gray-800 font-serif antialiased px-2">
+                        <div className="whitespace-pre-wrap break-words indent-4">
+                          {articleText.split('\n\n').map((para, i) => {
+                            const isHeading = para.startsWith('##');
+                            const headingText = isHeading ? para.replace('##', '').trim() : '';
+                            const associatedImage = isHeading ? inlineImages.find(img => img.heading === headingText) : null;
 
-                          return (
-                            <div key={i} className="mb-6 md:mb-10">
-                              <p className={cn(isHeading ? "text-xl md:text-2xl font-black text-gray-900 mt-10 md:mt-16 mb-6 md:mb-8" : "mb-6 md:mb-10 first-letter:text-2xl md:first-letter:text-3xl first-letter:font-black first-letter:text-orange-600 font-medium")}>
-                                {para}
-                              </p>
-                              {associatedImage && (
-                                <div className="my-6 md:my-8 rounded-xl md:rounded-2xl overflow-hidden border-2 md:border-4 border-white shadow-xl rotate-0 md:rotate-1">
-                                  <img src={associatedImage.url} alt={headingText} className="w-full h-auto" />
-                                  <div className="bg-orange-50 p-2 md:p-3 text-center text-[10px] md:text-xs font-bold text-orange-800 border-t border-orange-100">
-                                    {headingText} - Visualization
+                            return (
+                              <div key={i} className="mb-6 md:mb-10">
+                                <p className={cn(isHeading ? "text-xl md:text-2xl font-black text-gray-900 mt-10 md:mt-16 mb-6 md:mb-8" : "mb-6 md:mb-10 first-letter:text-2xl md:first-letter:text-3xl first-letter:font-black first-letter:text-orange-600 font-medium")}>
+                                  {para}
+                                </p>
+                                {associatedImage && (
+                                  <div className="my-6 md:my-8 rounded-xl md:rounded-2xl overflow-hidden border-2 md:border-4 border-white shadow-xl rotate-0 md:rotate-1">
+                                    <img src={associatedImage.url} alt={headingText} className="w-full h-auto" />
+                                    <div className="bg-orange-50 p-2 md:p-3 text-center text-[10px] md:text-xs font-bold text-orange-800 border-t border-orange-100">
+                                      {headingText} - Visualization
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="mt-20 pt-10 border-t-2 border-dashed border-orange-300 flex flex-col items-center text-center space-y-4">
-                      <div className="w-16 h-16 rounded-full bg-white shadow-inner flex items-center justify-center text-3xl border-2 border-orange-100 animate-bounce">
-                        🐾
+                      <div className="mt-20 pt-10 border-t-2 border-dashed border-orange-300 flex flex-col items-center text-center space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-white shadow-inner flex items-center justify-center text-3xl border-2 border-orange-100 animate-bounce">
+                          🐾
+                        </div>
+                        <p className="text-orange-900 font-black text-sm italic font-serif">
+                          &quot;思考を価値に変えるお手伝い、完了しました！&quot;<br />
+                          <span className="text-orange-600/60 not-italic text-xs">Generated by Note Red Panda Assistant</span>
+                        </p>
                       </div>
-                      <p className="text-orange-900 font-black text-sm italic font-serif">
-                        "思考を価値に変えるお手伝い、完了しました！"<br />
-                        <span className="text-orange-600/60 not-italic text-xs">Generated by Note Red Panda Assistant</span>
-                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )
+            }
 
-            {activeTab === "score" && score && (
-              <div className="glass-card p-8 rounded-[24px] animate-in fade-in slide-in-from-left-4 duration-500 border border-orange-500/20">
-                <div className="flex justify-center mb-8">
-                  <div className="w-20 h-20 rounded-2xl bg-orange-500/10 flex items-center justify-center text-4xl border border-orange-500/20 shadow-inner">🏆</div>
+            {
+              activeTab === "score" && score && (
+                <div className="glass-card p-8 rounded-[24px] animate-in fade-in slide-in-from-left-4 duration-500 border border-orange-500/20">
+                  <div className="flex justify-center mb-8">
+                    <div className="w-20 h-20 rounded-2xl bg-orange-500/10 flex items-center justify-center text-4xl border border-orange-500/20 shadow-inner">🏆</div>
+                  </div>
+                  <ScoreMeter score={score.total} summary={score.summary} />
+                  <div className="px-4">
+                    <ScoreBars details={score.details} metrics={score.metrics} />
+                  </div>
                 </div>
-                <ScoreMeter score={score.total} summary={score.summary} />
-                <div className="px-4">
-                  <ScoreBars details={score.details} metrics={score.metrics} />
-                </div>
-              </div>
-            )}
-          </div>
+              )
+            }
+          </div >
 
           <div className="pt-10 flex flex-col items-center gap-6">
             <div className="flex gap-4">
@@ -2634,14 +2731,16 @@ export default function Home() {
           </div>
 
           {/* New: Mobile Quick Copy Helper (Floating UI) */}
-          {status === "done" && (
-            <MobileCopyHelper
-              title={displayTitle}
-              body={articleText}
-              tags={hashtags}
-            />
-          )}
-        </div>
+          {
+            status === "done" && (
+              <MobileCopyHelper
+                title={displayTitle}
+                body={articleText}
+                tags={hashtags}
+              />
+            )
+          }
+        </div >
       )
       }
     </div >
