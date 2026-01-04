@@ -20,11 +20,7 @@ function mdToHtml(md: string): string {
     let html = md;
 
     // 1. コードブロック (```...```) -> <pre><code>...</code></pre>
-    // 先に処理して、中の記号が他の変換に巻き込まれないようにプレースホルダにするのが理想ですが、
-    // ここでは簡易的に先に変換し、後続の処理で中身を壊さないように注意します。
-    // noteのコードブロックは <pre><code>...</code></pre> で表現されます。
     html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-        // コード内のHTML特殊文字をエスケープ
         const escapedCode = code.replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
@@ -32,48 +28,76 @@ function mdToHtml(md: string): string {
     });
 
     // 2. 自動HR挿入: H2 (##) の直前に区切り線を入れる
-    // 文頭の ## には入れないように、改行の後の ## をターゲットにする
     html = html.replace(/\n(## .+)/g, '\n\n---\n\n$1');
 
     // 3. 水平線 (---) -> <hr>
     html = html.replace(/^---$/gm, '<hr>');
 
-    // 4. 見出し (Note API対策: H1は削除, H2->H3, H3->H4)
+    // 4. ポイント強調 (独立行の太字) -> 引用符付き太字
+    html = html.replace(/^\*\*(Point|ポイント|Check|チェック)[：:](.+)\*\*$/gm, '<blockquote><strong>$1: $2</strong></blockquote>');
+
+    // 5. URL自動リンク (httpから始まる行)
+    // 既にリンク記法になっているものは除外
+    html = html.replace(/^(http[^ \n]+)$/gm, '<a href="$1">$1</a>');
+
+    // 6. 目次生成 (TOC)
+    // H2の見出しを抽出
+    const toc: string[] = [];
+    let h2Count = 0;
+    // 見出し置換時にアンカーも埋め込むことは難しい（noteはid属性を削除する傾向がある）が、
+    // 目次リスト自体をテキストとして冒頭に置くことは可能。
+    // ここでは、noteの機能としての目次が発動しやすくなるよう、きれいな構造を作ることに専念します。
+    // ※自前でHTML目次を作っても、noteエディタでIDが消されるためリンクが機能しないことが多い。
+    // 代わりに「目次」というセクションを明示的に作ることで、ユーザー体験を向上させます。
+
+    // 7. 見出し (Note API対策: H1は削除, H2->H3, H3->H4)
     html = html.replace(/^# (.+)$/gm, ''); // H1は削除
-    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>'); // H2 -> H3
+    html = html.replace(/^## (.+)$/gm, (match, title) => {
+        h2Count++;
+        toc.push(`<li>${title}</li>`);
+        return `<h3>${title}</h3>`;
+    });
     html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>'); // H3 -> H4
 
-    // 5. リスト
+    // 目次挿入 (記事の冒頭、最初のH3の前あたりに挿入したいが、単純に先頭に追加)
+    if (toc.length > 0) {
+        const tocHtml = `<div class="toc"><strong>目次</strong><ul>${toc.join('')}</ul></div><hr>`;
+        // 最初のH3の前に入れるのが理想的
+        const firstH3Index = html.indexOf('<h3>');
+        if (firstH3Index !== -1) {
+            html = html.substring(0, firstH3Index) + tocHtml + html.substring(firstH3Index);
+        } else {
+            html = tocHtml + html;
+        }
+    }
+
+    // 8. リスト
     html = html.replace(/^- (.+)$/gm, '<ul><li>$1</li></ul>');
-    // Note: 連続するulを結合（簡易）
     html = html.replace(/<\/ul>\n<ul>/g, '');
 
-    // 6. 強調
+    // 9. 強調 (通常の文中太字)
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // 7. 画像 (簡易)
+    // 10. 画像 (簡易)
     html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<figure><img src="$2" alt="$1"></figure>');
 
-    // 8. リンク
+    // 11. リンク
     html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
 
-    // 9. 引用
+    // 12. 引用
     html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
 
-    // 10. 段落 (空行で分割してpタグで囲む)
-    // ただし、既にタグになっている行（<h3>, <pre>, <figure>, <ul>, <hr>など）は囲まない
+    // 13. 段落
     const paragraphs = html.split('\n\n');
     html = paragraphs.map(p => {
         const trimmed = p.trim();
         if (!trimmed) return '';
-        // ブロックレベル要素で始まっている場合はそのまま
-        if (trimmed.match(/^(<h[1-6]|<pre|<figure|<ul|<hr|<li|<blockquote)/)) {
+        if (trimmed.match(/^(<h[1-6]|<pre|<figure|<ul|<hr|<li|<blockquote|<div)/)) {
             return trimmed;
         }
         return `<p>${trimmed}</p>`;
     }).join('\n');
 
-    // 最終的なHTMLが空にならないように
     if (!html) html = "<p>（本文なし）</p>";
 
     return html;
