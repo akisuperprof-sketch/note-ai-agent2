@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
                 console.log("Rabbit: Received Body Length:", noteBody?.length);
                 console.log("Rabbit: Received Body Preview:", noteBody?.substring(0, 100));
 
-                const htmlContent = mdToHtml(noteBody || "");
+                let htmlContent = mdToHtml(noteBody || "");
                 console.log("Rabbit: Converted HTML Length:", htmlContent.length);
                 console.log("Rabbit: Converted HTML Preview:", htmlContent.substring(0, 100));
 
@@ -225,56 +225,18 @@ export async function POST(req: NextRequest) {
                 sendUpdate(`Rabbit: Body Len: ${bodyLen}, HTML Len: ${htmlContent.length}`);
                 sendUpdate(`Rabbit: HTML Preview: ${htmlContent.substring(0, 50)}...`);
 
-                // --- Image Upload Logic ---
+                // --- Image Logic (Inline Embedding Strategy) ---
+                // API upload failed (404/403), so we embed the image directly into the HTML as a fallback.
+                // Note: note.com editor often auto-fetches this URL when saved as draft involved external images.
                 let eyecatchKey: string | null = null;
-                sendUpdate(`Rabbit: Image URL Check: ${imageUrl ? 'YES' : 'NO'}`);
+
                 if (imageUrl) {
-                    try {
-                        sendUpdate('Rabbit: Downloading Image...');
-                        // 1. Fetch the image data
-                        const imgRes = await fetch(imageUrl);
-                        if (!imgRes.ok) throw new Error(`Image Fetch Failed: ${imgRes.status}`);
-                        const imgBlob = await imgRes.blob();
-                        sendUpdate(`Rabbit: Image Downloaded (${imgBlob.size} bytes)`);
-
-                        // 2. Prepare FormData
-                        const formData = new FormData();
-                        formData.append('resource', imgBlob, 'header_image.png');
-
-                        // 3. Upload to Note
-                        sendUpdate('Rabbit: Uploading to note.com...');
-                        // Endpoint correction: /api/v1/images is the standard one for image assets
-                        const uploadRes = await fetch('https://note.com/api/v1/images', {
-                            method: 'POST',
-                            headers: {
-                                // removing Content-Type to let fetch set the boundary
-                                'User-Agent': headers['User-Agent'],
-                                'Cookie': headers['Cookie'],
-                                'Origin': 'https://note.com',
-                                'X-Requested-With': 'XMLHttpRequest',
-                                ...(headers['X-XSRF-TOKEN'] ? { 'X-XSRF-TOKEN': headers['X-XSRF-TOKEN'] } : {})
-                            },
-                            body: formData
-                        });
-
-                        if (!uploadRes.ok) {
-                            const errText = await uploadRes.text();
-                            console.error("Rabbit: Image Upload Error:", errText);
-                            sendUpdate(`Rabbit: Image Upload Failed (${uploadRes.status}): ${errText.substring(0, 50)}`);
-                        } else {
-                            const uploadData = await uploadRes.json();
-                            sendUpdate(`Rabbit: Upload Response: ${JSON.stringify(uploadData).substring(0, 100)}...`);
-                            eyecatchKey = uploadData.data?.key;
-                            if (eyecatchKey) {
-                                sendUpdate(`Rabbit: Image Key Acquired: ${eyecatchKey}`);
-                            } else {
-                                sendUpdate('Rabbit: Key not found in response');
-                            }
-                        }
-                    } catch (e: any) {
-                        console.error("Rabbit: Image Upload Exception:", e);
-                        sendUpdate(`Rabbit: Image Upload Error (Skipping): ${e.message}`);
-                    }
+                    sendUpdate('Rabbit: Embedding Image to Body (Inline Fallback)...');
+                    // Prepend image to HTML (Header Image Style)
+                    htmlContent = `<figure><img src="${imageUrl}" alt="header_image"></figure>\n\n` + htmlContent;
+                    sendUpdate('Rabbit: Image embedded at the top of content.');
+                } else {
+                    sendUpdate('Rabbit: No Image URL provided.');
                 }
 
                 // --- Note Creation ---

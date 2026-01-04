@@ -2432,6 +2432,16 @@ export default function Home() {
                                       <ExternalLink size={10} /> Debug View
                                     </a>
                                   )}
+                                  <button
+                                    onClick={() => {
+                                      const logs = postLogs.map(l => `[${l.time}] ${l.text}`).join('\n');
+                                      navigator.clipboard.writeText(logs);
+                                      alert("Logs copied to clipboard");
+                                    }}
+                                    className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white/70 transition-all border border-white/5"
+                                  >
+                                    Copy Logs
+                                  </button>
                                 </div>
                               </div>
                               <div className="h-32 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent pr-2" ref={(el) => {
