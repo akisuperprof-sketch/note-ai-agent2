@@ -55,50 +55,69 @@ function mdToHtml(md: string): string {
     return html;
 }
 
-function getCookiesFromSession(): string | null {
+// --- Helpers ---
+function getSessionData(): any | null {
     try {
-        if (!fs.existsSync(SESSION_FILE)) return null;
-        const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
-        if (!data.cookies || !Array.isArray(data.cookies)) return null;
+        // Priority 1: Env Var (for Vercel/Production)
+        if (process.env.NOTE_SESSION_JSON) {
+            try {
+                return JSON.parse(process.env.NOTE_SESSION_JSON);
+            } catch (e) {
+                console.error("Env Var NOTE_SESSION_JSON parse error:", e);
+            }
+        }
 
-        // note.com のクッキーのみを抽出（念のため）
-        // Playwrightのcookiesは { name, value, domain, ... }
-        return data.cookies
-            .map((c: any) => `${c.name}=${c.value}`)
-            .join('; ');
+        // Priority 2: File System (for Local)
+        if (fs.existsSync(SESSION_FILE)) {
+            return JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+        }
+
+        return null;
     } catch (e) {
-        console.error("Cookie Load Error:", e);
+        console.error("Session Load Error:", e);
         return null;
     }
 }
 
-function getXsrfTokenFromSession(): string | null {
-    try {
-        if (!fs.existsSync(SESSION_FILE)) return null;
-        const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
-        if (!data.cookies || !Array.isArray(data.cookies)) return null;
+function getCookiesFromSession(): string | null {
+    const data = getSessionData();
+    if (!data || !data.cookies || !Array.isArray(data.cookies)) return null;
 
-        const tokenCookie = data.cookies.find((c: any) => c.name === 'XSRF-TOKEN');
-        return tokenCookie ? tokenCookie.value : null;
-    } catch (e) {
-        return null; // Silent fail
-    }
+    // note.com のクッキーのみを抽出（念のため）
+    return data.cookies
+        .map((c: any) => `${c.name}=${c.value}`)
+        .join('; ');
+}
+
+function getXsrfTokenFromSession(): string | null {
+    const data = getSessionData();
+    if (!data || !data.cookies || !Array.isArray(data.cookies)) return null;
+
+    const tokenCookie = data.cookies.find((c: any) => c.name === 'XSRF-TOKEN');
+    return tokenCookie ? tokenCookie.value : null;
 }
 
 export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
         async start(controller) {
-            const sendUpdate = (step: string) => { controller.enqueue(encoder.encode(`${JSON.stringify({ last_step: step })}\n`)); };
-            try {
-                const body = await req.json();
-                const { title, body: noteBody } = body;
+            const sendUpdate = (step: string) => {
+                const job: NoteJob = {
+                    job_id: 'rabbit-' + Date.now(),
+                    status: step.includes('Error') ? 'failed' : 'running',
+                    last_step: step
+                };
+                controller.enqueue(encoder.encode(`${JSON.stringify(job)}\n`));
+            };
 
+            try {
                 sendUpdate('Rabbit: Loading Session...');
+
+                const { title, body: noteBody, imageUrl } = await req.json();
                 const cookieHeader = getCookiesFromSession();
 
                 if (!cookieHeader) {
-                    throw new Error("セッションファイルが見つかりません。一度通常モードでログインを完了させてください。");
+                    throw new Error("セッションが見つかりません。通常モードでログインするか、環境変数 NOTE_SESSION_JSON を設定してください。");
                 }
 
                 sendUpdate('Rabbit: Converting Content...');
@@ -153,6 +172,50 @@ export async function POST(req: NextRequest) {
                 sendUpdate(`Rabbit: Body Len: ${bodyLen}, HTML Len: ${htmlContent.length}`);
                 sendUpdate(`Rabbit: HTML Preview: ${htmlContent.substring(0, 50)}...`);
 
+                // --- Image Upload Logic ---
+                let eyecatchKey: string | null = null;
+                if (imageUrl) {
+                    try {
+                        sendUpdate('Rabbit: Uploading Image...');
+                        // 1. Fetch the image data
+                        const imgRes = await fetch(imageUrl);
+                        if (!imgRes.ok) throw new Error(`Image Fetch Failed: ${imgRes.status}`);
+                        const imgBlob = await imgRes.blob();
+
+                        // 2. Prepare FormData
+                        const formData = new FormData();
+                        formData.append('resource', imgBlob, 'header_image.png');
+
+                        // 3. Upload to Note
+                        const uploadRes = await fetch('https://note.com/api/v1/upload_image', {
+                            method: 'POST',
+                            headers: {
+                                // removing Content-Type to let fetch set the boundary
+                                'User-Agent': headers['User-Agent'],
+                                'Cookie': headers['Cookie'],
+                                'Origin': 'https://note.com',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                ...(headers['X-XSRF-TOKEN'] ? { 'X-XSRF-TOKEN': headers['X-XSRF-TOKEN'] } : {})
+                            },
+                            body: formData
+                        });
+
+                        if (!uploadRes.ok) {
+                            const errText = await uploadRes.text();
+                            console.error("Rabbit: Image Upload Error:", errText);
+                            sendUpdate(`Rabbit: Image Upload Failed (${uploadRes.status})`);
+                        } else {
+                            const uploadData = await uploadRes.json();
+                            eyecatchKey = uploadData.data?.key;
+                            sendUpdate('Rabbit: Image Upload Success!');
+                        }
+                    } catch (e) {
+                        console.error("Rabbit: Image Upload Exception:", e);
+                        sendUpdate('Rabbit: Image Upload Error (Skipping)');
+                    }
+                }
+
+                // --- Note Creation ---
                 const apiData = {
                     body: htmlContent,
                     name: title,
@@ -179,19 +242,23 @@ export async function POST(req: NextRequest) {
                 const noteUrl = articleKey ? `https://note.com/notes/${articleKey}` : 'unknown';
 
                 if (articleId) {
-                    // Step 2: SAVE as Draft using 'draft_save' endpoint (Official Editor Method)
+                    // Step 2: SAVE as Draft using 'draft_save' endpoint
                     sendUpdate('Rabbit: Finalizing Draft (Draft Save API)...');
 
-                    // Note: Browser sniff showed query params: draft_save?id=...&is_temp_saved=true
                     const draftSaveUrl = `https://note.com/api/v1/text_notes/draft_save?id=${articleId}&is_temp_saved=true`;
 
-                    const updateData = {
+                    const updateData: any = {
                         body: htmlContent,
                         body_length: htmlContent.length,
                         name: title,
                         index: false,
                         is_lead_form: false
                     };
+
+                    if (eyecatchKey) {
+                        updateData.eyecatch_image_key = eyecatchKey;
+                        sendUpdate('Rabbit: Attaching Eyecatch Image...');
+                    }
 
                     const updateRes = await fetch(draftSaveUrl, {
                         method: 'POST',

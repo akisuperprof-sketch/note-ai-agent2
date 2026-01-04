@@ -54,7 +54,7 @@ function Header({ appMode, setAppMode }: { appMode?: "production" | "development
             <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "production" ? "bg-green-500" : "bg-gray-600")} />
             Prod
           </button>
-          <button
+          {/* <button
             type="button"
             onClick={(e) => {
               e.preventDefault();
@@ -67,7 +67,7 @@ function Header({ appMode, setAppMode }: { appMode?: "production" | "development
           >
             <div className={cn("w-1.5 h-1.5 rounded-full", appMode === "development" ? "bg-red-500" : "bg-gray-600")} />
             Dev
-          </button>
+          </button> */}
           <button
             type="button"
             onClick={(e) => {
@@ -1012,7 +1012,7 @@ export default function Home() {
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
   // Mode Management
-  const [appMode, setAppMode] = useState<"production" | "development" | "rabbit">("production");
+  const [appMode, setAppMode] = useState<"production" | "development" | "rabbit">("rabbit");
   const [postedArticles, setPostedArticles] = useState<Set<string>>(new Set());
   const [postStatus, setPostStatus] = useState<"idle" | "posting" | "success" | "error" | "stopped">("idle");
   const [postLogs, setPostLogs] = useState<{ text: string, time: string }[]>([]);
