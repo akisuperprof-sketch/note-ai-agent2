@@ -19,6 +19,11 @@ type NoteJob = {
 function mdToHtml(md: string): string {
     let html = md;
 
+    // 0. AI生成の目次削除 (システム生成と重複するため)
+    html = html.replace(/^> ?【?目次】?.*$/gm, ''); // 引用形式の目次行を削除
+    html = html.replace(/^## ?目次.*$/gm, '');      // H2形式の目次行を削除
+    html = html.replace(/^\*\*目次\*\*.*$/gm, '');  // 太字形式の目次行を削除
+
     // 1. コードブロック (```...```) -> <pre><code>...</code></pre>
     html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
         const escapedCode = code.replace(/&/g, '&amp;')
