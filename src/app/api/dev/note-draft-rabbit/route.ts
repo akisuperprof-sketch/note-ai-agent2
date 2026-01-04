@@ -222,19 +222,22 @@ export async function POST(req: NextRequest) {
 
                 // --- Image Upload Logic ---
                 let eyecatchKey: string | null = null;
+                sendUpdate(`Rabbit: Image URL Check: ${imageUrl ? 'YES' : 'NO'}`);
                 if (imageUrl) {
                     try {
-                        sendUpdate('Rabbit: Uploading Image...');
+                        sendUpdate('Rabbit: Downloading Image...');
                         // 1. Fetch the image data
                         const imgRes = await fetch(imageUrl);
                         if (!imgRes.ok) throw new Error(`Image Fetch Failed: ${imgRes.status}`);
                         const imgBlob = await imgRes.blob();
+                        sendUpdate(`Rabbit: Image Downloaded (${imgBlob.size} bytes)`);
 
                         // 2. Prepare FormData
                         const formData = new FormData();
                         formData.append('resource', imgBlob, 'header_image.png');
 
                         // 3. Upload to Note
+                        sendUpdate('Rabbit: Uploading to note.com...');
                         const uploadRes = await fetch('https://note.com/api/v1/upload_image', {
                             method: 'POST',
                             headers: {
@@ -251,15 +254,20 @@ export async function POST(req: NextRequest) {
                         if (!uploadRes.ok) {
                             const errText = await uploadRes.text();
                             console.error("Rabbit: Image Upload Error:", errText);
-                            sendUpdate(`Rabbit: Image Upload Failed (${uploadRes.status})`);
+                            sendUpdate(`Rabbit: Image Upload Failed (${uploadRes.status}): ${errText.substring(0, 50)}`);
                         } else {
                             const uploadData = await uploadRes.json();
+                            sendUpdate(`Rabbit: Upload Response: ${JSON.stringify(uploadData).substring(0, 100)}...`);
                             eyecatchKey = uploadData.data?.key;
-                            sendUpdate('Rabbit: Image Upload Success!');
+                            if (eyecatchKey) {
+                                sendUpdate(`Rabbit: Image Key Acquired: ${eyecatchKey}`);
+                            } else {
+                                sendUpdate('Rabbit: Key not found in response');
+                            }
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         console.error("Rabbit: Image Upload Exception:", e);
-                        sendUpdate('Rabbit: Image Upload Error (Skipping)');
+                        sendUpdate(`Rabbit: Image Upload Error (Skipping): ${e.message}`);
                     }
                 }
 
