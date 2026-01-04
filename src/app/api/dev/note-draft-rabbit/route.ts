@@ -17,35 +17,59 @@ type NoteJob = {
 
 // --- Helpers ---
 function mdToHtml(md: string): string {
-    // 資料のPython実装を参考に簡易変換
-    // 実際にはもっとリッチな変換が必要かもしれないが、まずは疎通確認用
     let html = md;
 
-    // 見出し (Note API対策: H1はタイトルとして別送されるため、本文内はH2以下にシフトするか削除)
-    html = html.replace(/^# (.+)$/gm, ''); // H1は削除（タイトルと重複するため）
+    // 1. コードブロック (```...```) -> <pre><code>...</code></pre>
+    // 先に処理して、中の記号が他の変換に巻き込まれないようにプレースホルダにするのが理想ですが、
+    // ここでは簡易的に先に変換し、後続の処理で中身を壊さないように注意します。
+    // noteのコードブロックは <pre><code>...</code></pre> で表現されます。
+    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+        // コード内のHTML特殊文字をエスケープ
+        const escapedCode = code.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        return `<pre data-lang="${lang || ''}"><code>${escapedCode}</code></pre>`;
+    });
+
+    // 2. 自動HR挿入: H2 (##) の直前に区切り線を入れる
+    // 文頭の ## には入れないように、改行の後の ## をターゲットにする
+    html = html.replace(/\n(## .+)/g, '\n\n---\n\n$1');
+
+    // 3. 水平線 (---) -> <hr>
+    html = html.replace(/^---$/gm, '<hr>');
+
+    // 4. 見出し (Note API対策: H1は削除, H2->H3, H3->H4)
+    html = html.replace(/^# (.+)$/gm, ''); // H1は削除
     html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>'); // H2 -> H3
     html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>'); // H3 -> H4
 
-    // リスト
+    // 5. リスト
     html = html.replace(/^- (.+)$/gm, '<ul><li>$1</li></ul>');
-    // Note: 連続するulを結合する処理が必要だが、まずは簡易実装
+    // Note: 連続するulを結合（簡易）
+    html = html.replace(/<\/ul>\n<ul>/g, '');
 
-    // 強調
+    // 6. 強調
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // 画像 (簡易)
+    // 7. 画像 (簡易)
     html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<figure><img src="$2" alt="$1"></figure>');
 
-    // リンク
+    // 8. リンク
     html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
 
-    // 段落
-    // 空行で分割してpタグで囲む
+    // 9. 引用
+    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
+    // 10. 段落 (空行で分割してpタグで囲む)
+    // ただし、既にタグになっている行（<h3>, <pre>, <figure>, <ul>, <hr>など）は囲まない
     const paragraphs = html.split('\n\n');
     html = paragraphs.map(p => {
         const trimmed = p.trim();
         if (!trimmed) return '';
-        if (trimmed.startsWith('<')) return trimmed; // 既にタグの場合はそのまま
+        // ブロックレベル要素で始まっている場合はそのまま
+        if (trimmed.match(/^(<h[1-6]|<pre|<figure|<ul|<hr|<li|<blockquote)/)) {
+            return trimmed;
+        }
         return `<p>${trimmed}</p>`;
     }).join('\n');
 
