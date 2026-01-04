@@ -1335,7 +1335,8 @@ export default function Home() {
           email: noteEmail,
           password: notePassword,
           isTest,
-          visualDebug
+          visualDebug,
+          imageUrl: generatedImage
         }),
       });
 
