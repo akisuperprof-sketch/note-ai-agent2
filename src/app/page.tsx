@@ -1009,6 +1009,7 @@ export default function Home() {
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"result" | "preview" | "score">("result");
   const [eyecatchError, setEyecatchError] = useState<string | null>(null);
+  const [isRegeneratingEyecatch, setIsRegeneratingEyecatch] = useState(false);
   const [inlineErrors, setInlineErrors] = useState<{ heading: string, error: string }[]>([]);
 
   // Mode Management
@@ -1885,6 +1886,7 @@ export default function Home() {
   const handleRetryEyecatch = async () => {
     if (!inputs || !displayTitle) return;
     setEyecatchError(null);
+    setIsRegeneratingEyecatch(true);
     setLogs(prev => [...prev, "アイキャッチを再試行中..."]);
 
     try {
@@ -1913,6 +1915,8 @@ export default function Home() {
       }
     } catch (e) {
       setEyecatchError("通信エラーが発生しました");
+    } finally {
+      setIsRegeneratingEyecatch(false);
     }
   };
 
@@ -2380,11 +2384,12 @@ export default function Home() {
                   <div className="flex justify-between items-end">
                     <h3 className="text-xl font-bold text-white/80">アイキャッチ画像</h3>
                     <div className="flex gap-2">
-                      {eyecatchError && (
-                        <button onClick={handleRetryEyecatch} className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/30 transition-all">
-                          <RotateCcw size={14} /> 再試行
-                        </button>
-                      )}
+                      <button
+                        onClick={handleRetryEyecatch}
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-white hover:bg-white/10 transition-all"
+                      >
+                        <RotateCcw size={14} /> 再生成
+                      </button>
 
                       {isTitleFabMode ? (
                         <button
@@ -2423,7 +2428,13 @@ export default function Home() {
                     <div className="space-y-4">
                       <div className="glass-card p-2 rounded-[24px] overflow-hidden border border-orange-500/20">
                         <div className="relative aspect-video w-full rounded-[20px] overflow-hidden">
-                          <img src={generatedImage} alt="Generated Header" className="w-full h-full object-cover" />
+                          <img src={generatedImage} alt="Generated Header" className={cn("w-full h-full object-cover transition-all", isRegeneratingEyecatch && "blur-sm opacity-50 scale-105")} />
+                          {isRegeneratingEyecatch && (
+                            <div className="absolute inset-0 flex items-center justify-center flex-col gap-2 z-10">
+                              <div className="w-10 h-10 border-4 border-orange-500 border-t-white rounded-full animate-spin shadow-lg"></div>
+                              <span className="text-white font-bold text-sm drop-shadow-md">New Image Generating...</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2552,11 +2563,36 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="flex justify-between items-end">
+                  <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <h3 className="text-xl font-bold text-white/80">記事原稿</h3>
-                    <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-white hover:bg-white/10 transition-all">
-                      <Copy size={14} /> 本文をコピー
-                    </button>
+                    <div className="flex gap-2 w-full md:w-auto">
+                      <div className="flex-1 md:flex-initial flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-1">
+                        <span className="text-[10px] text-gray-400 whitespace-nowrap">文字数調整</span>
+                        <input
+                          type="number"
+                          defaultValue={inputs?.targetLength || 5000}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (val > 0) setInputs({ ...inputs, targetLength: val });
+                          }}
+                          className="w-16 bg-transparent text-white text-xs font-bold focus:outline-none text-right"
+                        />
+                        <button
+                          onClick={() => {
+                            if (confirm(`文字数を設定値に合わせて、記事を書き直しますか？\n(現在の内容に基づいて再生成します)`)) {
+                              handleGenerate(inputs);
+                            }
+                          }}
+                          className="p-1.5 bg-orange-500/20 text-orange-400 hover:bg-orange-500 hover:text-white rounded-lg transition-all"
+                          title="この文字数で再生成"
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                      </div>
+                      <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-white hover:bg-white/10 transition-all whitespace-nowrap">
+                        <Copy size={14} /> 本文をコピー
+                      </button>
+                    </div>
                   </div>
                   <div className="glass-card p-6 rounded-[24px] bg-black/40 border border-white/5 max-h-96 overflow-y-auto scrollbar-hide">
                     <pre className="whitespace-pre-wrap font-sans text-sm text-gray-300 leading-relaxed">
