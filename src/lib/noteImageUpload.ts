@@ -109,32 +109,46 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
         });
 
         // Navigate
+        console.log("Rabbit: Navigating to note.com/notes/new");
         await page.goto('https://note.com/notes/new');
         await page.waitForTimeout(3000);
 
         // Upload Logic
         const addImgBtn = await page.$('button[aria-label="画像を追加"]');
         if (addImgBtn) {
+            console.log("Rabbit: Found 'Add Image' button");
             await addImgBtn.click();
             const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload")', { timeout: 3000 }).catch(() => null);
 
             if (uploadBtn) {
+                console.log("Rabbit: Found 'Upload' button");
                 const fileChooserPromise = page.waitForEvent('filechooser');
                 await uploadBtn.click();
                 const fileChooser = await fileChooserPromise;
                 await fileChooser.setFiles(imagePath);
+                console.log("Rabbit: File set to chooser");
+            } else {
+                console.log("Rabbit: 'Upload' button NOT found in popover");
             }
         } else {
+            console.log("Rabbit: 'Add Image' button NOT found");
             // Fallback: direct file input
             const fileInput = await page.$('input[type="file"]');
             if (fileInput) {
                 await fileInput.setInputFiles(imagePath);
+                console.log("Rabbit: Used direct file input");
+            } else {
+                console.log("Rabbit: Direct file input NOT found");
             }
         }
 
         // Wait for key
+        console.log("Rabbit: Waiting for eyecatch key...");
         for (let i = 0; i < 20; i++) {
-            if (eyecatchKey) break;
+            if (eyecatchKey) {
+                console.log(`Rabbit: Key found: ${eyecatchKey}`);
+                break;
+            }
             await page.waitForTimeout(1000);
         }
 
