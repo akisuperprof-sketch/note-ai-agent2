@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
             };
 
             try {
-                sendUpdate('Rabbit: Loading Session...');
+                sendUpdate('Rabbit: セッションを読み込んでいます...');
 
                 const { title, body: noteBody, imageUrl } = await req.json();
                 const cookieHeader = getCookiesFromSession();
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
                     throw new Error("セッションが見つかりません。通常モードでログインするか、環境変数 NOTE_SESSION_JSON を設定してください。");
                 }
 
-                sendUpdate('Rabbit: Converting Content...');
+                sendUpdate('Rabbit: コンテンツを変換中...');
                 console.log("Rabbit: Received Body Length:", noteBody?.length);
                 console.log("Rabbit: Received Body Preview:", noteBody?.substring(0, 100));
 
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
                 console.log("Rabbit: Converted HTML Length:", htmlContent.length);
                 console.log("Rabbit: Converted HTML Preview:", htmlContent.substring(0, 100));
 
-                sendUpdate('Rabbit: Sending API Request...');
+                sendUpdate('Rabbit: APIリクエストを送信中...');
 
                 const xsrfToken = getXsrfTokenFromSession();
 
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
 
                 // 1. Check Login Status (Soft Check)
                 try {
-                    sendUpdate('Rabbit: Checking Login Status...');
+                    sendUpdate('Rabbit: ログインの状態を確認中...');
                     const statusRes = await fetch('https://note.com/api/v2/login/status', { headers });
                     if (!statusRes.ok) {
                         console.warn(`Rabbit: Login Check HTTP ${statusRes.status}`);
@@ -193,26 +193,25 @@ export async function POST(req: NextRequest) {
                         if (contentType && contentType.includes("application/json")) {
                             const statusData = await statusRes.json();
                             const userNickname = statusData.data?.user?.nickname || "Unknown";
-                            sendUpdate(`Rabbit: Logged in as ${userNickname}`);
+                            sendUpdate(`Rabbit: ログイン成功 (ユーザー: ${userNickname})`);
                         } else {
                             console.warn("Rabbit: Login Check returned non-JSON");
                         }
                     }
                 } catch (e) {
                     console.error("Rabbit: Login Check Failed (Skipping)", e);
-                    sendUpdate('Rabbit: Login Status Skipped (Error)');
+                    sendUpdate('Rabbit: ログイン状態の確認をスキップします (エラー)');
                 }
 
                 // Detailed Logging for Debugging
                 const bodyLen = noteBody?.length || 0;
-                sendUpdate(`Rabbit: Body Len: ${bodyLen}, HTML Len: ${htmlContent.length}`);
-                sendUpdate(`Rabbit: HTML Preview: ${htmlContent.substring(0, 50)}...`);
+                sendUpdate(`Rabbit: 本文長: ${bodyLen}, HTML変換後: ${htmlContent.length}`);
 
                 // --- Image Logic (Enabled) ---
                 let eyecatchKey: string | null = null;
                 if (imageUrl) {
                     try {
-                        sendUpdate('Rabbit: Processing Eyecatch Image...');
+                        sendUpdate('Rabbit: アイキャッチ画像を処理中...');
                         let imageBlob: Blob;
 
                         if (imageUrl.startsWith('data:')) {
@@ -227,7 +226,7 @@ export async function POST(req: NextRequest) {
                         }
 
                         // Upload to Note API
-                        sendUpdate('Rabbit: Uploading Image to Note...');
+                        sendUpdate('Rabbit: 画像をnoteサーバーへアップロード中...');
                         const formData = new FormData();
                         formData.append('resource', imageBlob, 'eyecatch.png');
                         formData.append('type', 'eyecatch_image'); // Common type for eyecatch
@@ -250,23 +249,23 @@ export async function POST(req: NextRequest) {
                         if (!uploadRes.ok) {
                             const errText = await uploadRes.text();
                             console.error("Rabbit: Image Upload Failed:", errText);
-                            sendUpdate(`Rabbit: Warning - Image Upload Failed (${uploadRes.status})`);
+                            sendUpdate(`Rabbit: 【警告】画像のアップロードに失敗しました (${uploadRes.status})`);
                         } else {
                             const uploadData = await uploadRes.json();
                             eyecatchKey = uploadData.data?.key;
                             if (eyecatchKey) {
-                                sendUpdate('Rabbit: Image Upload Success!');
+                                sendUpdate('Rabbit: 画像のアップロード成功！');
                             } else {
-                                sendUpdate('Rabbit: Image Upload Success but No Key found.');
+                                sendUpdate('Rabbit: アップロード成功 (キー取得不可)');
                             }
                         }
 
                     } catch (e: any) {
                         console.error("Rabbit: Image Logic Error:", e);
-                        sendUpdate(`Rabbit: Image Error - ${e.message}`);
+                        sendUpdate(`Rabbit: 画像処理エラー - ${e.message}`);
                     }
                 } else {
-                    sendUpdate('Rabbit: No Image URL provided.');
+                    sendUpdate('Rabbit: 画像URLが指定されていません');
                 }
 
                 // --- Note Creation ---
@@ -297,7 +296,7 @@ export async function POST(req: NextRequest) {
 
                 if (articleId) {
                     // Step 2: SAVE as Draft using 'draft_save' endpoint
-                    sendUpdate('Rabbit: Finalizing Draft (Draft Save API)...');
+                    sendUpdate('Rabbit: 下書きとして保存中 (Draft Save API)...');
 
                     const draftSaveUrl = `https://note.com/api/v1/text_notes/draft_save?id=${articleId}&is_temp_saved=true`;
 
@@ -311,7 +310,7 @@ export async function POST(req: NextRequest) {
 
                     if (eyecatchKey) {
                         updateData.eyecatch_image_key = eyecatchKey;
-                        sendUpdate('Rabbit: Attaching Eyecatch Image...');
+                        sendUpdate('Rabbit: アイキャッチ画像を紐付け中...');
                     }
 
                     const updateRes = await fetch(draftSaveUrl, {
@@ -323,13 +322,13 @@ export async function POST(req: NextRequest) {
                     if (!updateRes.ok) {
                         const err = await updateRes.text();
                         console.error("Rabbit: Draft Save Error:", err);
-                        sendUpdate(`Rabbit: Warning - Draft content save failed (${updateRes.status})`);
+                        sendUpdate(`Rabbit: 【警告】下書き保存に失敗しました (${updateRes.status})`);
                     } else {
                         console.log("Rabbit: Draft Save Success");
                     }
                 } else if (articleKey) {
                     // Fallback to legacy PUT
-                    sendUpdate('Rabbit: Warning - No Numeric ID. Attempting legacy PUT...');
+                    sendUpdate('Rabbit: 【警告】ID取得不可。旧APIで更新を試みます...');
                     const updateData = {
                         body: htmlContent,
                         name: title,
@@ -344,7 +343,7 @@ export async function POST(req: NextRequest) {
                     });
                 }
 
-                sendUpdate(`Rabbit: Success! Draft Key: ${articleKey}`);
+                sendUpdate(`Rabbit: 完了しました！ 下書きキー: ${articleKey}`);
 
                 controller.enqueue(encoder.encode(`${JSON.stringify({ status: 'success', note_url: noteUrl })}\n`));
             } catch (error: any) {
