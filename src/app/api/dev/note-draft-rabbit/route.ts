@@ -240,24 +240,39 @@ export async function POST(req: NextRequest) {
                         };
                         if (xsrfToken) uploadHeaders['X-XSRF-TOKEN'] = xsrfToken;
 
-                        const uploadRes = await fetch('https://note.com/api/v1/images', {
-                            method: 'POST',
-                            headers: uploadHeaders,
-                            body: formData
-                        });
+                        // Upload to Note API (Try standard endpoints)
+                        // Strategy: Try 'upload_image' (unofficial common), then 'files' (modern), then 'images'
+                        const endpoints = [
+                            'https://note.com/api/v1/upload_image',
+                            'https://note.com/api/v1/files',
+                            'https://note.com/api/v2/file/upload'
+                        ];
 
-                        if (!uploadRes.ok) {
-                            const errText = await uploadRes.text();
-                            console.error("Rabbit: Image Upload Failed:", errText);
-                            sendUpdate(`Rabbit: 【警告】画像のアップロードに失敗しました (${uploadRes.status})`);
-                        } else {
-                            const uploadData = await uploadRes.json();
-                            eyecatchKey = uploadData.data?.key;
-                            if (eyecatchKey) {
-                                sendUpdate('Rabbit: 画像のアップロード成功！');
+                        let uploadSuccess = false;
+
+                        for (const endpoint of endpoints) {
+                            sendUpdate(`Rabbit: 画像アップロード試行中 (${endpoint.split('/').pop()})...`);
+                            const uploadRes = await fetch(endpoint, {
+                                method: 'POST',
+                                headers: uploadHeaders,
+                                body: formData
+                            });
+
+                            if (uploadRes.ok) {
+                                const uploadData = await uploadRes.json();
+                                eyecatchKey = uploadData.data?.key || uploadData.key; // Compatible with different responses
+                                if (eyecatchKey) {
+                                    sendUpdate('Rabbit: 画像のアップロード成功！');
+                                    uploadSuccess = true;
+                                    break;
+                                }
                             } else {
-                                sendUpdate('Rabbit: アップロード成功 (キー取得不可)');
+                                console.warn(`Rabbit: Upload to ${endpoint} failed: ${uploadRes.status}`);
                             }
+                        }
+
+                        if (!uploadSuccess) {
+                            sendUpdate(`Rabbit: 【警告】すべてのエンドポイントで画像のアップロードに失敗しました`);
                         }
 
                     } catch (e: any) {
