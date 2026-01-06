@@ -240,7 +240,7 @@ export async function POST(req: NextRequest) {
                         };
                         if (xsrfToken) uploadHeaders['X-XSRF-TOKEN'] = xsrfToken;
 
-                        const uploadRes = await fetch('https://note.com/api/v1/omochi/image/upload', {
+                        const uploadRes = await fetch('https://note.com/api/v1/images', {
                             method: 'POST',
                             headers: uploadHeaders,
                             body: formData
