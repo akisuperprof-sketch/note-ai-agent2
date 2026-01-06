@@ -1,62 +1,70 @@
-const { chromium } = require('playwright-core');
-const fs = require('fs');
-const path = require('path');
+import { chromium, Browser, BrowserContext, Page } from 'playwright-core';
+import fs from 'fs';
+import path from 'path';
 
-// Arguments: [node, script, imagePath, sessionJsonPath]
-const imagePath = process.argv[2];
-const sessionJsonPath = process.argv[3];
-
-if (!imagePath || !sessionJsonPath) {
-    console.error("Usage: node upload_image_to_note.js <image_path> <session_json_path>");
-    process.exit(1);
+interface UploadResult {
+    status: 'success' | 'error';
+    key?: string;
+    message?: string;
 }
 
-if (!fs.existsSync(imagePath)) {
-    console.error(`Image file not found: ${imagePath}`);
-    process.exit(1);
-}
+export async function uploadImageToNote(imagePath: string, sessionJsonPath: string): Promise<UploadResult> {
+    if (!fs.existsSync(imagePath)) {
+        return { status: 'error', message: `Image file not found: ${imagePath}` };
+    }
 
-(async () => {
-    let browser;
+    let browser: Browser | null = null;
     try {
-        // Try to launch chrome (local) or just standard headless
-        let launchOptions = { headless: true };
+        // Try to find executable path for Chrome/Chromium
+        let executablePath: string | undefined = undefined;
 
-        // Helper to find local chrome if needed (optional optimization)
+        // Common Linux/Mac paths
         const possiblePaths = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
             '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Program Files/Google/Chrome/Application/chrome.exe',
-            '/usr/bin/google-chrome'
+            '/Program Files/Google/Chrome/Application/chrome.exe'
         ];
-        const execPath = possiblePaths.find(p => fs.existsSync(p));
-        if (execPath) launchOptions.executablePath = execPath;
 
-        browser = await chromium.launch(launchOptions);
+        // If on Vercel/Lambda, rely on system configuration or specific env vars if needed.
+        // For now, check common paths.
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                executablePath = p;
+                break;
+            }
+        }
 
-        const context = await browser.newContext({
+        browser = await chromium.launch({
+            headless: true,
+            executablePath: executablePath, // Undefined means Playwright looks for bundled version
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Crucial for container/lambda
+        });
+
+        const context: BrowserContext = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
 
         // Load cookies
         if (fs.existsSync(sessionJsonPath)) {
             try {
-                const sessionData = JSON.parse(fs.readFileSync(sessionJsonPath, 'utf-8'));
+                const sessionFile = fs.readFileSync(sessionJsonPath, 'utf-8');
+                const sessionData = JSON.parse(sessionFile);
                 if (sessionData.cookies && Array.isArray(sessionData.cookies)) {
                     await context.addCookies(sessionData.cookies);
                 } else if (Array.isArray(sessionData)) {
                     await context.addCookies(sessionData);
                 }
             } catch (e) {
-                // Ignore parsing errors
+                console.warn("Failed to parse session cookies", e);
             }
         }
 
-        const page = await context.newPage();
+        const page: Page = await context.newPage();
+        let eyecatchKey: string | null = null;
 
-        // ---------------------------------------------------------
-        // Intercept Auto-Save to get the key
-        // ---------------------------------------------------------
-        let eyecatchKey = null;
+        // 1. Intercept Auto-Save (preferred method)
         page.on('request', request => {
             if (request.method() === 'POST' && request.url().includes('/api/v1/text_notes')) {
                 const postData = request.postData();
@@ -71,7 +79,7 @@ if (!fs.existsSync(imagePath)) {
             }
         });
 
-        // Also listen for the upload RESPONSE, just in case
+        // 2. Intercept Upload Response (backup method)
         page.on('response', async response => {
             if (response.request().method() === 'POST' && (response.url().includes('upload') || response.url().includes('file'))) {
                 try {
@@ -83,20 +91,14 @@ if (!fs.existsSync(imagePath)) {
             }
         });
 
-        // ---------------------------------------------------------
-        // Navigation & Upload
-        // ---------------------------------------------------------
+        // Navigate
         await page.goto('https://note.com/notes/new');
-
-        // Wait for editor
         await page.waitForTimeout(3000);
 
-        // Click "Image" -> "Upload" logic (robust)
+        // Upload Logic
         const addImgBtn = await page.$('button[aria-label="画像を追加"]');
         if (addImgBtn) {
             await addImgBtn.click();
-
-            // Wait for popover and find upload button
             const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload")', { timeout: 3000 }).catch(() => null);
 
             if (uploadBtn) {
@@ -104,36 +106,30 @@ if (!fs.existsSync(imagePath)) {
                 await uploadBtn.click();
                 const fileChooser = await fileChooserPromise;
                 await fileChooser.setFiles(imagePath);
-
-                // Wait for upload to process and auto-save
-                // We poll for eyecatchKey
-                for (let i = 0; i < 20; i++) {
-                    if (eyecatchKey) break;
-                    await page.waitForTimeout(1000);
-                }
             }
         } else {
-            // Maybe simplified editor or different state
-            // Try file input directly
+            // Fallback: direct file input
             const fileInput = await page.$('input[type="file"]');
             if (fileInput) {
                 await fileInput.setInputFiles(imagePath);
-                for (let i = 0; i < 20; i++) {
-                    if (eyecatchKey) break;
-                    await page.waitForTimeout(1000);
-                }
             }
         }
 
-        if (eyecatchKey) {
-            console.log(JSON.stringify({ status: 'success', key: eyecatchKey }));
-        } else {
-            console.log(JSON.stringify({ status: 'error', message: 'Failed to extract key' }));
+        // Wait for key
+        for (let i = 0; i < 20; i++) {
+            if (eyecatchKey) break;
+            await page.waitForTimeout(1000);
         }
 
-    } catch (error) {
-        console.log(JSON.stringify({ status: 'error', message: error.message }));
+        if (eyecatchKey) {
+            return { status: 'success', key: eyecatchKey };
+        } else {
+            return { status: 'error', message: 'Failed to extract key after upload' };
+        }
+
+    } catch (error: any) {
+        return { status: 'error', message: error.message };
     } finally {
         if (browser) await browser.close();
     }
-})();
+}

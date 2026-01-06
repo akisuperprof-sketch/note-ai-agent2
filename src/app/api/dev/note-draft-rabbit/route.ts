@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
+import { uploadImageToNote } from '@/lib/noteImageUpload';
 
 // --- Config ---
 const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
@@ -292,37 +293,14 @@ export async function POST(req: NextRequest) {
                                 const buffer = Buffer.from(await imageBlob.arrayBuffer());
                                 fs.writeFileSync(tempImgPath, buffer);
 
-                                const { exec } = require('child_process');
-                                const scriptPath = path.join(process.cwd(), 'tools', 'upload_image_to_note.js');
-                                const command = `node "${scriptPath}" "${tempImgPath}" "${SESSION_FILE}"`;
-
                                 sendUpdate('Rabbit: ヘッドレスブラウザ起動中...');
+                                const result = await uploadImageToNote(tempImgPath, SESSION_FILE);
 
-                                const resultJson = await new Promise<string>((resolve, reject) => {
-                                    exec(command, { timeout: 120000 }, (error: any, stdout: string, stderr: string) => {
-                                        if (error) {
-                                            console.error("Helper Error:", stderr);
-                                            reject(new Error(stderr || error.message));
-                                        } else {
-                                            resolve(stdout);
-                                        }
-                                    });
-                                });
-
-                                const lines = resultJson.split('\n');
-                                let parsed: any = null;
-                                for (const line of lines) {
-                                    try {
-                                        const p = JSON.parse(line);
-                                        if (p.status) parsed = p;
-                                    } catch (e) { }
-                                }
-
-                                if (parsed && parsed.status === 'success' && parsed.key) {
-                                    eyecatchKey = parsed.key;
+                                if (result.status === 'success' && result.key) {
+                                    eyecatchKey = result.key;
                                     sendUpdate('Rabbit: 画像アップロード成功! (Hybrid Mode)');
                                 } else {
-                                    throw new Error(parsed?.message || "Helper script returned no key");
+                                    throw new Error(result.message || "Helper script returned no key");
                                 }
 
                             } catch (e: any) {
