@@ -1733,38 +1733,49 @@ export default function Home() {
           console.error("Header image failed", e);
         }
 
-        // --- 2. Initial Inline Image (First one) ---
-        await addLog("記事内画像を生成中...", 1000);
-        try {
-          const firstHeadingMatch = fullText.match(/##\s+(.+)/);
-          headingText = firstHeadingMatch ? firstHeadingMatch[1] : "この記事のポイント";
-          setInlineHeading(headingText);
+        // --- 2. Inline Images (All Chapters) ---
+        const headings = Array.from(fullText.matchAll(/##\s+(.+)/g)).map(m => m[1]);
+        const headerImages: { heading: string, url: string }[] = [];
 
-          const imgRes = await fetch("/api/generate-image", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: headingText,
-              articleText: "Demonstration of: " + headingText,
-              visualStyle: data.visualStyle,
-              character: data.character,
-              referenceImage: data.referenceImage,
-              promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a cozy object' : data.character} representing "${headingText}", clear details, professional composition, textless background.`
-            }),
-          });
-          const imgData = await imgRes.json();
-          if (imgRes.ok && imgData.imageUrl) {
-            finalInlineUrl = imgData.imageUrl;
-            setInlineImage(imgData.imageUrl);
-            setInlineImages([{ heading: headingText, url: imgData.imageUrl }]);
-            setInlineErrors(prev => prev.filter(err => err.heading !== headingText));
-          } else {
-            const errMsg = imgData.error || "記事内画像の生成に失敗しました";
-            setInlineErrors(prev => [...prev, { heading: headingText, error: errMsg }]);
+        if (headings.length > 0) {
+          await addLog(`各章の挿絵を生成しています (全${headings.length}枚)...`, 1000);
+
+          for (let i = 0; i < headings.length; i++) {
+            const heading = headings[i];
+
+            // Skip if looks like "Introduction" or "Conclusion" if desired, but User said "Each Chapter" so we do all.
+            try {
+              const imgRes = await fetch("/api/generate-image", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: heading,
+                  articleText: "Concept: " + heading,
+                  visualStyle: data.visualStyle,
+                  character: data.character,
+                  referenceImage: data.referenceImage,
+                  promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a relevant object' : data.character} representing the concept of "${heading}", artistic and detailed, textless background.`
+                }),
+              });
+              const imgData = await imgRes.json();
+              if (imgRes.ok && imgData.imageUrl) {
+                headerImages.push({ heading, url: imgData.imageUrl });
+                setInlineImages([...headerImages]); // Update UI incrementally
+                setInlineErrors(prev => prev.filter(e => e.heading !== heading));
+              } else {
+                const errMsg = imgData.error || "生成失敗";
+                setInlineErrors(prev => [...prev, { heading, error: errMsg }]);
+              }
+            } catch (e) {
+              console.error(`Failed to generate image for ${heading}`, e);
+              setInlineErrors(prev => [...prev, { heading, error: "通信エラー" }]);
+            }
+
+            // Small delay to be gentle on rate limits
+            if (i < headings.length - 1) await new Promise(r => setTimeout(r, 500));
           }
-        } catch (e) {
-          setInlineErrors(prev => [...prev, { heading: headingText, error: "通信エラーが発生しました" }]);
-          console.error("Inline image failed", e);
+        } else {
+          await addLog("見出しが見つからなかったため、挿絵生成をスキップします", 1000);
         }
 
         const finalMeta = paragraphs.find(p => p.length > 50)?.substring(0, 120) + "..." || "";
@@ -1773,7 +1784,7 @@ export default function Home() {
           displayTitle: extractedTitle,
           articleText: finalArticle,
           generatedImage: finalImgUrl,
-          inlineImages: finalInlineUrl ? [{ heading: headingText, url: finalInlineUrl }] : [],
+          inlineImages: headerImages,
           score: finalScore,
           metaDescription: finalMeta,
           hashtags: currentHashtags,

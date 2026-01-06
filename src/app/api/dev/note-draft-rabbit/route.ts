@@ -20,9 +20,14 @@ function mdToHtml(md: string): string {
     let html = md;
 
     // 0. AI生成の目次削除 (システム生成と重複するため)
-    html = html.replace(/^> ?【?目次】?.*$/gm, ''); // 引用形式の目次行を削除
-    html = html.replace(/^## ?目次.*$/gm, '');      // H2形式の目次行を削除
-    html = html.replace(/^\*\*目次\*\*.*$/gm, '');  // 太字形式の目次行を削除
+    // 0. AI生成のメタデータ・目次削除
+    html = html.replace(/^---CONTENT_START---$/gm, ''); // 開始マーカー削除
+    html = html.replace(/^> ?【?目次】?.*$/gm, '');
+    html = html.replace(/^## ?目次.*$/gm, '');
+    html = html.replace(/^\*\*目次\*\*.*$/gm, '');
+    // AIの内部ヘッダー（序章、構成案など）を削除
+    html = html.replace(/^【(序章|導入|構成案|計画|編集後記).*】.*$/gm, '');
+    html = html.replace(/^\*\*【(序章|導入|構成案|計画|編集後記).*】\*\*.*$/gm, ''); // 太字パターンも削除
 
     // 1. コードブロック (```...```) -> <pre><code>...</code></pre>
     html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
@@ -45,36 +50,14 @@ function mdToHtml(md: string): string {
     // 既にリンク記法になっているものは除外
     html = html.replace(/^(http[^ \n]+)$/gm, '<a href="$1">$1</a>');
 
-    // 6. 目次生成 (TOC)
-    // H2の見出しを抽出
-    const toc: string[] = [];
-    let h2Count = 0;
-    // 見出し置換時にアンカーも埋め込むことは難しい（noteはid属性を削除する傾向がある）が、
-    // 目次リスト自体をテキストとして冒頭に置くことは可能。
-    // ここでは、noteの機能としての目次が発動しやすくなるよう、きれいな構造を作ることに専念します。
-    // ※自前でHTML目次を作っても、noteエディタでIDが消されるためリンクが機能しないことが多い。
-    // 代わりに「目次」というセクションを明示的に作ることで、ユーザー体験を向上させます。
+    // 6. 目次生成 (TOC) - 削除
+    // noteが自動生成するものと重複するため、自前の目次は生成しません。
 
     // 7. 見出し (Note API対策: H1は削除, H2->H3, H3->H4)
-    html = html.replace(/^# (.+)$/gm, ''); // H1は削除
-    html = html.replace(/^## (.+)$/gm, (match, title) => {
-        h2Count++;
-        toc.push(`<li>${title}</li>`);
-        return `<h3>${title}</h3>`;
-    });
-    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>'); // H3 -> H4
-
-    // 目次挿入 (記事の冒頭、最初のH3の前あたりに挿入したいが、単純に先頭に追加)
-    if (toc.length > 0) {
-        const tocHtml = `<div class="toc"><strong>目次</strong><ul>${toc.join('')}</ul></div><hr>`;
-        // 最初のH3の前に入れるのが理想的
-        const firstH3Index = html.indexOf('<h3>');
-        if (firstH3Index !== -1) {
-            html = html.substring(0, firstH3Index) + tocHtml + html.substring(firstH3Index);
-        } else {
-            html = tocHtml + html;
-        }
-    }
+    // NoteのAPI/エディタ仕様に合わせて見出しレベルをごく一部調整
+    html = html.replace(/^# (.+)$/gm, ''); // H1（タイトル）は本文から削除
+    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>'); // H2 -> H3 (Noteの大見出し相当)
+    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>'); // H3 -> H4 (Noteの小見出し相当)
 
     // 8. リスト
     html = html.replace(/^- (.+)$/gm, '<ul><li>$1</li></ul>');
