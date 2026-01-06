@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
                                 fs.writeFileSync(tempImgPath, buffer);
 
                                 sendUpdate('Rabbit: ヘッドレスブラウザ起動中...');
-                                const result = await uploadImageToNote(tempImgPath, SESSION_FILE);
+                                const result = await uploadImageToNote(tempImgPath, SESSION_FILE, (msg) => sendUpdate(msg));
 
                                 if (result.status === 'success' && result.key) {
                                     eyecatchKey = result.key;
