@@ -240,57 +240,97 @@ export async function POST(req: NextRequest) {
                         };
                         if (xsrfToken) uploadHeaders['X-XSRF-TOKEN'] = xsrfToken;
 
-                        // Upload to Note API (Hybrid Approach: Headless Browser Helper)
-                        sendUpdate('Rabbit: 画像アップロード開始 (Hybrid Mode)...');
+                        // --- Image Upload Strategy: API First -> Hybrid Fallback ---
+                        sendUpdate('Rabbit: 画像アップロード処理開始...');
 
-                        // 1. Save Blob to Temp File
-                        const tempImgPath = path.join(process.cwd(), `temp_eyecatch_${Date.now()}.png`);
-                        const buffer = Buffer.from(await imageBlob.arrayBuffer());
-                        fs.writeFileSync(tempImgPath, buffer);
+                        // Phase 1: Try Standard APIs (Fast)
+                        const apiAttempts = [
+                            { url: 'https://note.com/api/v1/upload_image', field: 'file' }, // Research suggested
+                            { url: 'https://note.com/api/v1/upload_image', field: 'resource' },
+                            { url: 'https://note.com/api/v1/files', field: 'resource' },
+                            { url: 'https://note.com/api/v1/files', field: 'file' },
+                            { url: 'https://note.com/api/v2/file/upload', field: 'file' }
+                        ];
 
-                        // 2. Run Helper Script
-                        const { exec } = require('child_process');
-                        const scriptPath = path.join(process.cwd(), 'tools', 'upload_image_to_note.ts');
-                        // Use npx tsx and quote paths for safety
-                        const command = `npx tsx "${scriptPath}" "${tempImgPath}" "${SESSION_FILE}"`;
+                        for (const attempt of apiAttempts) {
+                            const label = `API: ${attempt.url.split('/').pop()} (${attempt.field})`;
 
-                        sendUpdate('Rabbit: ヘッドレスブラウザを起動して画像をアップロード中...');
+                            try {
+                                const formData = new FormData();
+                                formData.append(attempt.field, imageBlob, 'eyecatch.png');
+                                formData.append('type', 'eyecatch_image');
 
-                        try {
-                            const resultJson = await new Promise<string>((resolve, reject) => {
-                                exec(command, { timeout: 120000 }, (error: any, stdout: string, stderr: string) => {
-                                    if (error) {
-                                        console.error("Helper Script Error:", stderr);
-                                        reject(new Error(stderr || error.message));
-                                    } else {
-                                        resolve(stdout);
-                                    }
+                                const res = await fetch(attempt.url, {
+                                    method: 'POST',
+                                    headers: uploadHeaders,
+                                    body: formData
                                 });
-                            });
 
-                            // 3. Parse Output
-                            const lines = resultJson.split('\n');
-                            let parsed: any = null;
-                            for (const line of lines) {
-                                try {
-                                    const p = JSON.parse(line);
-                                    if (p.status) parsed = p;
-                                } catch (e) { }
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    const key = data.data?.key || data.key;
+                                    if (key) {
+                                        eyecatchKey = key;
+                                        sendUpdate(`Rabbit: 画像アップロード成功! (${label})`);
+                                        break;
+                                    }
+                                }
+                            } catch (e) {
+                                // Silent fail for API attempts to try next
                             }
+                        }
 
-                            if (parsed && parsed.status === 'success' && parsed.key) {
-                                eyecatchKey = parsed.key;
-                                sendUpdate('Rabbit: 画像のアップロード成功！ (Key取得済み)');
-                            } else {
-                                throw new Error(parsed?.message || "Unknown Helper Error");
+                        // Phase 2: Hybrid Fallback (Robust but Slower)
+                        if (!eyecatchKey) {
+                            sendUpdate('Rabbit: APIアップロード失敗。ハイブリッドモード(ブラウザ)で再試行します...');
+
+                            const os = require('os');
+                            const tempDir = os.tmpdir();
+                            const tempImgPath = path.join(tempDir, `temp_eyecatch_${Date.now()}.png`);
+
+                            try {
+                                const buffer = Buffer.from(await imageBlob.arrayBuffer());
+                                fs.writeFileSync(tempImgPath, buffer);
+
+                                const { exec } = require('child_process');
+                                const scriptPath = path.join(process.cwd(), 'tools', 'upload_image_to_note.ts');
+                                const command = `npx tsx "${scriptPath}" "${tempImgPath}" "${SESSION_FILE}"`;
+
+                                sendUpdate('Rabbit: ヘッドレスブラウザ起動中...');
+
+                                const resultJson = await new Promise<string>((resolve, reject) => {
+                                    exec(command, { timeout: 120000 }, (error: any, stdout: string, stderr: string) => {
+                                        if (error) {
+                                            console.error("Helper Error:", stderr);
+                                            reject(new Error(stderr || error.message));
+                                        } else {
+                                            resolve(stdout);
+                                        }
+                                    });
+                                });
+
+                                const lines = resultJson.split('\n');
+                                let parsed: any = null;
+                                for (const line of lines) {
+                                    try {
+                                        const p = JSON.parse(line);
+                                        if (p.status) parsed = p;
+                                    } catch (e) { }
+                                }
+
+                                if (parsed && parsed.status === 'success' && parsed.key) {
+                                    eyecatchKey = parsed.key;
+                                    sendUpdate('Rabbit: 画像アップロード成功! (Hybrid Mode)');
+                                } else {
+                                    throw new Error(parsed?.message || "Helper script returned no key");
+                                }
+
+                            } catch (e: any) {
+                                console.error("Hybrid Upload Failed:", e);
+                                sendUpdate(`Rabbit: 【警告】画像アップロード完全失敗: ${e.message}`);
+                            } finally {
+                                if (fs.existsSync(tempImgPath)) fs.unlinkSync(tempImgPath);
                             }
-
-                        } catch (e: any) {
-                            console.error("Rabbit: Image Upload Helper Failed:", e);
-                            sendUpdate(`Rabbit: 【警告】画像アップロードに失敗しました (Hybrid Mode): ${e.message}`);
-                        } finally {
-                            // 4. Cleanup
-                            if (fs.existsSync(tempImgPath)) fs.unlinkSync(tempImgPath);
                         }
 
                     } catch (e: any) {
