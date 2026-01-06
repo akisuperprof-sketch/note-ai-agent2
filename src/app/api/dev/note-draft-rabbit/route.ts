@@ -242,37 +242,52 @@ export async function POST(req: NextRequest) {
 
                         // Upload to Note API (Try standard endpoints)
                         // Strategy: Try 'upload_image' (unofficial common), then 'files' (modern), then 'images'
-                        const endpoints = [
-                            'https://note.com/api/v1/upload_image',
-                            'https://note.com/api/v1/files',
-                            'https://note.com/api/v2/file/upload'
+                        const uploadAttempts = [
+                            { url: 'https://note.com/api/v1/files', field: 'resource' },
+                            { url: 'https://note.com/api/v1/files', field: 'file' },
+                            { url: 'https://note.com/api/v1/upload_image', field: 'resource' },
+                            { url: 'https://note.com/api/v2/file/upload', field: 'file' }
                         ];
 
                         let uploadSuccess = false;
 
-                        for (const endpoint of endpoints) {
-                            sendUpdate(`Rabbit: 画像アップロード試行中 (${endpoint.split('/').pop()})...`);
-                            const uploadRes = await fetch(endpoint, {
-                                method: 'POST',
-                                headers: uploadHeaders,
-                                body: formData
-                            });
+                        for (const attempt of uploadAttempts) {
+                            const label = `${attempt.url.split('/').pop()} (${attempt.field})`;
+                            sendUpdate(`Rabbit: 画像アップロード試行中: ${label}...`);
 
-                            if (uploadRes.ok) {
-                                const uploadData = await uploadRes.json();
-                                eyecatchKey = uploadData.data?.key || uploadData.key; // Compatible with different responses
-                                if (eyecatchKey) {
-                                    sendUpdate('Rabbit: 画像のアップロード成功！');
-                                    uploadSuccess = true;
-                                    break;
+                            const attemptFormData = new FormData();
+                            attemptFormData.append(attempt.field, imageBlob, 'eyecatch.png');
+                            attemptFormData.append('type', 'eyecatch_image');
+
+                            try {
+                                const uploadRes = await fetch(attempt.url, {
+                                    method: 'POST',
+                                    headers: uploadHeaders,
+                                    body: attemptFormData
+                                });
+
+                                if (uploadRes.ok) {
+                                    const uploadData = await uploadRes.json();
+                                    eyecatchKey = uploadData.data?.key || uploadData.key;
+                                    if (eyecatchKey) {
+                                        sendUpdate(`Rabbit: 画像アップロード成功！ (${label})`);
+                                        uploadSuccess = true;
+                                        break;
+                                    } else {
+                                        sendUpdate(`Rabbit: アップロード成功だがキー不明 (${label})`);
+                                    }
+                                } else {
+                                    const errText = await uploadRes.text().catch(() => 'No body');
+                                    console.warn(`Rabbit: Upload failed ${label}: ${uploadRes.status} ${errText}`);
+                                    sendUpdate(`Rabbit: 失敗 (${label}): ${uploadRes.status}`);
                                 }
-                            } else {
-                                console.warn(`Rabbit: Upload to ${endpoint} failed: ${uploadRes.status}`);
+                            } catch (e: any) {
+                                sendUpdate(`Rabbit: エラー (${label}): ${e.message}`);
                             }
                         }
 
                         if (!uploadSuccess) {
-                            sendUpdate(`Rabbit: 【警告】すべてのエンドポイントで画像のアップロードに失敗しました`);
+                            sendUpdate(`Rabbit: 【警告】すべてのパターンで失敗しました。画像なしで続行します。`);
                         }
 
                     } catch (e: any) {
