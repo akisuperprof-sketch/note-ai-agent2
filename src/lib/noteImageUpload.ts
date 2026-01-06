@@ -8,7 +8,16 @@ interface UploadResult {
     message?: string;
 }
 
-export async function uploadImageToNote(imagePath: string, sessionJsonPath: string): Promise<UploadResult> {
+export async function uploadImageToNote(
+    imagePath: string,
+    sessionJsonPath: string,
+    onProgress?: (msg: string) => void
+): Promise<UploadResult> {
+    const log = (msg: string) => {
+        console.log(msg);
+        if (onProgress) onProgress(msg);
+    };
+
     if (!fs.existsSync(imagePath)) {
         return { status: 'error', message: `Image file not found: ${imagePath}` };
     }
@@ -41,17 +50,17 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
         // If not found locally and we are on Linux (likely Vercel/Sandbox), try @sparticuz/chromium
         if (!executablePath && process.platform === 'linux') {
             try {
-                console.log("Rabbit: Detected Linux. Attempting to use @sparticuz/chromium...");
+                log("Rabbit: Detected Linux. Attempting to use @sparticuz/chromium...");
                 const sparticuz = require('@sparticuz/chromium');
                 executablePath = await sparticuz.executablePath();
                 launchArgs = [...sparticuz.args, ...launchArgs];
-                console.log("Rabbit: @sparticuz/chromium path resolved:", executablePath);
+                log(`Rabbit: @sparticuz/chromium path resolved: ${executablePath}`);
             } catch (e: any) {
-                console.warn("Rabbit: Failed to load @sparticuz/chromium:", e.message);
+                log(`Rabbit: Failed to load @sparticuz/chromium: ${e.message}`);
             }
         }
 
-        console.log(`Rabbit: Launching Browser. Executable: ${executablePath || 'Bundled/Default'}`);
+        log(`Rabbit: Launching Browser. Executable: ${executablePath || 'Bundled/Default'}`);
 
         browser = await chromium.launch({
             headless: true,
@@ -109,44 +118,50 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
         });
 
         // Navigate
-        console.log("Rabbit: Navigating to note.com/notes/new");
+        log("Rabbit: Navigating to note.com/notes/new");
         await page.goto('https://note.com/notes/new');
         await page.waitForTimeout(3000);
 
         // Upload Logic
         const addImgBtn = await page.$('button[aria-label="画像を追加"]');
         if (addImgBtn) {
-            console.log("Rabbit: Found 'Add Image' button");
+            log("Rabbit: Found 'Add Image' button");
             await addImgBtn.click();
-            const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload")', { timeout: 3000 }).catch(() => null);
+            const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload"), button:has-text("upload")', { timeout: 3000 }).catch(() => null);
 
             if (uploadBtn) {
-                console.log("Rabbit: Found 'Upload' button");
+                log("Rabbit: Found 'Upload' button");
                 const fileChooserPromise = page.waitForEvent('filechooser');
                 await uploadBtn.click();
                 const fileChooser = await fileChooserPromise;
                 await fileChooser.setFiles(imagePath);
-                console.log("Rabbit: File set to chooser");
+                log("Rabbit: File set to chooser");
             } else {
-                console.log("Rabbit: 'Upload' button NOT found in popover");
+                log("Rabbit: 'Upload' button NOT found in popover");
+                // Check if there is already an input type file we can use
+                const fileInput = await page.$('input[type="file"]');
+                if (fileInput) {
+                    await fileInput.setInputFiles(imagePath);
+                    log("Rabbit: Used direct file input from Popover?");
+                }
             }
         } else {
-            console.log("Rabbit: 'Add Image' button NOT found");
+            log("Rabbit: 'Add Image' button NOT found");
             // Fallback: direct file input
             const fileInput = await page.$('input[type="file"]');
             if (fileInput) {
                 await fileInput.setInputFiles(imagePath);
-                console.log("Rabbit: Used direct file input");
+                log("Rabbit: Used direct file input");
             } else {
-                console.log("Rabbit: Direct file input NOT found");
+                log("Rabbit: Direct file input NOT found");
             }
         }
 
         // Wait for key
-        console.log("Rabbit: Waiting for eyecatch key...");
+        log("Rabbit: Waiting for eyecatch key...");
         for (let i = 0; i < 20; i++) {
             if (eyecatchKey) {
-                console.log(`Rabbit: Key found: ${eyecatchKey}`);
+                log(`Rabbit: Key found: ${eyecatchKey}`);
                 break;
             }
             await page.waitForTimeout(1000);
@@ -158,7 +173,7 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
             // Debug: Screenshot
             const shotPath = path.join('/tmp', `debug_failed_upload_${Date.now()}.png`);
             await page.screenshot({ path: shotPath, fullPage: true });
-            console.log(`Rabbit: Debug screenshot saved to ${shotPath}`);
+            log(`Rabbit: Debug screenshot saved to ${shotPath}`);
             return { status: 'error', message: 'Failed to extract key after upload. Screenshot saved.' };
         }
 
@@ -170,7 +185,7 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
                 if (page) {
                     const shotPath = path.join('/tmp', `debug_crash_${Date.now()}.png`);
                     await page.screenshot({ path: shotPath });
-                    console.log(`Rabbit: Crash screenshot saved to ${shotPath}`);
+                    log(`Rabbit: Crash screenshot saved to ${shotPath}`);
                 }
             }
         } catch (e) { }
