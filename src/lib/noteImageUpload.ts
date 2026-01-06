@@ -36,10 +36,12 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
             }
         }
 
+        console.log(`Rabbit: Launching Browser. Executable: ${executablePath || 'Bundled/Default'}`);
+
         browser = await chromium.launch({
             headless: true,
             executablePath: executablePath, // Undefined means Playwright looks for bundled version
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Crucial for container/lambda
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] // Crucial for container/lambda
         });
 
         const context: BrowserContext = await browser.newContext({
@@ -124,11 +126,27 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
         if (eyecatchKey) {
             return { status: 'success', key: eyecatchKey };
         } else {
-            return { status: 'error', message: 'Failed to extract key after upload' };
+            // Debug: Screenshot
+            const shotPath = path.join('/tmp', `debug_failed_upload_${Date.now()}.png`);
+            await page.screenshot({ path: shotPath, fullPage: true });
+            console.log(`Rabbit: Debug screenshot saved to ${shotPath}`);
+            return { status: 'error', message: 'Failed to extract key after upload. Screenshot saved.' };
         }
 
     } catch (error: any) {
-        return { status: 'error', message: error.message };
+        // Debug: Screenshot on crash
+        try {
+            if (browser) {
+                const page = (await browser.contexts()[0]?.pages())?.[0];
+                if (page) {
+                    const shotPath = path.join('/tmp', `debug_crash_${Date.now()}.png`);
+                    await page.screenshot({ path: shotPath });
+                    console.log(`Rabbit: Crash screenshot saved to ${shotPath}`);
+                }
+            }
+        } catch (e) { }
+
+        return { status: 'error', message: `Browser Error: ${error.message}` };
     } finally {
         if (browser) await browser.close();
     }
