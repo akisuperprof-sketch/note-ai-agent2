@@ -293,8 +293,8 @@ export async function POST(req: NextRequest) {
                                 fs.writeFileSync(tempImgPath, buffer);
 
                                 const { exec } = require('child_process');
-                                const scriptPath = path.join(process.cwd(), 'tools', 'upload_image_to_note.ts');
-                                const command = `npx tsx "${scriptPath}" "${tempImgPath}" "${SESSION_FILE}"`;
+                                const scriptPath = path.join(process.cwd(), 'tools', 'upload_image_to_note.js');
+                                const command = `node "${scriptPath}" "${tempImgPath}" "${SESSION_FILE}"`;
 
                                 sendUpdate('Rabbit: ヘッドレスブラウザ起動中...');
 
