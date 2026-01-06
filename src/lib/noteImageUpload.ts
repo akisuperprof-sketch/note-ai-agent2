@@ -36,12 +36,27 @@ export async function uploadImageToNote(imagePath: string, sessionJsonPath: stri
             }
         }
 
+        let launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+
+        // If not found locally and we are on Linux (likely Vercel/Sandbox), try @sparticuz/chromium
+        if (!executablePath && process.platform === 'linux') {
+            try {
+                console.log("Rabbit: Detected Linux. Attempting to use @sparticuz/chromium...");
+                const sparticuz = require('@sparticuz/chromium');
+                executablePath = await sparticuz.executablePath();
+                launchArgs = [...sparticuz.args, ...launchArgs];
+                console.log("Rabbit: @sparticuz/chromium path resolved:", executablePath);
+            } catch (e: any) {
+                console.warn("Rabbit: Failed to load @sparticuz/chromium:", e.message);
+            }
+        }
+
         console.log(`Rabbit: Launching Browser. Executable: ${executablePath || 'Bundled/Default'}`);
 
         browser = await chromium.launch({
             headless: true,
-            executablePath: executablePath, // Undefined means Playwright looks for bundled version
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] // Crucial for container/lambda
+            executablePath: executablePath,
+            args: [...new Set(launchArgs)]
         });
 
         const context: BrowserContext = await browser.newContext({
