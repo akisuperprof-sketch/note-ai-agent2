@@ -119,41 +119,70 @@ export async function uploadImageToNote(
 
         // Navigate
         log("Rabbit: Navigating to note.com/notes/new");
-        await page.goto('https://note.com/notes/new');
-        await page.waitForTimeout(3000);
+        const navigationResponse = await page.goto('https://note.com/notes/new', { timeout: 30000 });
 
-        // Upload Logic
-        const addImgBtn = await page.$('button[aria-label="画像を追加"]');
-        if (addImgBtn) {
-            log("Rabbit: Found 'Add Image' button");
-            await addImgBtn.click();
-            const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload"), button:has-text("upload")', { timeout: 3000 }).catch(() => null);
+        // Debug: Check if redirected to login
+        if (page.url().includes('login') || page.url().includes('signin')) {
+            log("Rabbit: Redirected to login page. Session might be invalid/expired.");
+            const shotPath = path.join('/tmp', `debug_failed_login_${Date.now()}.png`);
+            await page.screenshot({ path: shotPath });
+            return { status: 'error', message: 'Session expired. Please update note-session.json.' };
+        }
 
-            if (uploadBtn) {
-                log("Rabbit: Found 'Upload' button");
-                const fileChooserPromise = page.waitForEvent('filechooser');
-                await uploadBtn.click();
-                const fileChooser = await fileChooserPromise;
-                await fileChooser.setFiles(imagePath);
-                log("Rabbit: File set to chooser");
-            } else {
-                log("Rabbit: 'Upload' button NOT found in popover");
-                // Check if there is already an input type file we can use
-                const fileInput = await page.$('input[type="file"]');
-                if (fileInput) {
-                    await fileInput.setInputFiles(imagePath);
-                    log("Rabbit: Used direct file input from Popover?");
-                }
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(5000);
+
+        // Upload Logic - Try multiple strategies
+        let fileInput = await page.$('input[type="file"]');
+
+        // Strategy A: Direct Input (Hidden or not)
+        if (fileInput) {
+            log("Rabbit: Found direct file input. Attempting upload...");
+            try {
+                await fileInput.setInputFiles(imagePath);
+                log("Rabbit: Set files to direct input success.");
+            } catch (e: any) {
+                log(`Rabbit: Direct input failed: ${e.message}`);
             }
         } else {
-            log("Rabbit: 'Add Image' button NOT found");
-            // Fallback: direct file input
-            const fileInput = await page.$('input[type="file"]');
-            if (fileInput) {
-                await fileInput.setInputFiles(imagePath);
-                log("Rabbit: Used direct file input");
+            // Strategy B: Click "Add Image"
+            log("Rabbit: Direct input not found. Looking for buttons...");
+
+            const addImgSelectors = [
+                'button[aria-label="画像を追加"]',
+                'button[aria-label="ファイルをアップロード"]',
+                'svg[aria-label="画像"]',
+                'div[role="button"]:has-text("画像")',
+                '.o-editorAddBlock__item[aria-label="画像"]'
+            ];
+
+            let addImgBtn = null;
+            for (const sel of addImgSelectors) {
+                addImgBtn = await page.$(sel);
+                if (addImgBtn) {
+                    log(`Rabbit: Found button with selector: ${sel}`);
+                    await addImgBtn.click();
+                    break;
+                }
+            }
+
+            if (addImgBtn) {
+                const uploadBtn = await page.waitForSelector('button:has-text("アップロード"), button:has-text("Upload"), li:has-text("アップロード")', { timeout: 5000 }).catch(() => null);
+
+                if (uploadBtn) {
+                    log("Rabbit: Found 'Upload' button in menu");
+                    const fileChooserPromise = page.waitForEvent('filechooser');
+                    await uploadBtn.click();
+                    const fileChooser = await fileChooserPromise;
+                    await fileChooser.setFiles(imagePath);
+                    log("Rabbit: File set via filechooser");
+                } else {
+                    log("Rabbit: 'Upload' button not found after clicking add image.");
+                }
             } else {
-                log("Rabbit: Direct file input NOT found");
+                log("Rabbit: NO 'Add Image' button found. Dumping page content for debug.");
+                const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 200).replace(/\n/g, ' '));
+                log(`Rabbit: Page text snippet: ${bodyText}...`);
             }
         }
 
