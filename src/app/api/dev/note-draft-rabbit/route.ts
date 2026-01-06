@@ -208,11 +208,66 @@ export async function POST(req: NextRequest) {
                 sendUpdate(`Rabbit: Body Len: ${bodyLen}, HTML Len: ${htmlContent.length}`);
                 sendUpdate(`Rabbit: HTML Preview: ${htmlContent.substring(0, 50)}...`);
 
-                // --- Image Logic ---
-                // Disable image embedding for now as it causes 422 errors with external URLs.
-                // Users should upload images manually or use the browser extension in future.
+                // --- Image Logic (Enabled) ---
                 let eyecatchKey: string | null = null;
-                sendUpdate('Rabbit: Image embedding disabled (preventing 422 Error).');
+                if (imageUrl) {
+                    try {
+                        sendUpdate('Rabbit: Processing Eyecatch Image...');
+                        let imageBlob: Blob;
+
+                        if (imageUrl.startsWith('data:')) {
+                            // Convert Base64 Data URL to Blob
+                            const fetchRes = await fetch(imageUrl);
+                            imageBlob = await fetchRes.blob();
+                        } else {
+                            // Fetch remote URL
+                            const fetchRes = await fetch(imageUrl);
+                            if (!fetchRes.ok) throw new Error(`Failed to fetch image: ${fetchRes.status}`);
+                            imageBlob = await fetchRes.blob();
+                        }
+
+                        // Upload to Note API
+                        sendUpdate('Rabbit: Uploading Image to Note...');
+                        const formData = new FormData();
+                        formData.append('resource', imageBlob, 'eyecatch.png');
+                        formData.append('type', 'eyecatch_image'); // Common type for eyecatch
+
+                        const uploadHeaders: Record<string, string> = {
+                            'User-Agent': headers['User-Agent'],
+                            'Cookie': headers['Cookie'],
+                            'Origin': headers['Origin'],
+                            'Referer': headers['Referer'],
+                            'X-Requested-With': headers['X-Requested-With']
+                        };
+                        if (xsrfToken) uploadHeaders['X-XSRF-TOKEN'] = xsrfToken;
+
+                        const uploadRes = await fetch('https://note.com/api/v1/omochi/image/upload', {
+                            method: 'POST',
+                            headers: uploadHeaders,
+                            body: formData
+                        });
+
+                        if (!uploadRes.ok) {
+                            const errText = await uploadRes.text();
+                            console.error("Rabbit: Image Upload Failed:", errText);
+                            sendUpdate(`Rabbit: Warning - Image Upload Failed (${uploadRes.status})`);
+                        } else {
+                            const uploadData = await uploadRes.json();
+                            eyecatchKey = uploadData.data?.key;
+                            if (eyecatchKey) {
+                                sendUpdate('Rabbit: Image Upload Success!');
+                            } else {
+                                sendUpdate('Rabbit: Image Upload Success but No Key found.');
+                            }
+                        }
+
+                    } catch (e: any) {
+                        console.error("Rabbit: Image Logic Error:", e);
+                        sendUpdate(`Rabbit: Image Error - ${e.message}`);
+                    }
+                } else {
+                    sendUpdate('Rabbit: No Image URL provided.');
+                }
 
                 // --- Note Creation ---
                 const apiData = {
