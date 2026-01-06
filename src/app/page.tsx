@@ -1754,7 +1754,8 @@ export default function Home() {
                   visualStyle: data.visualStyle,
                   character: data.character,
                   referenceImage: data.referenceImage,
-                  promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a relevant object' : data.character} representing the concept of "${heading}", artistic and detailed, textless background.`
+                  strictCharacter: data.strictCharacter,
+                  promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a relevant object' : data.character} representing the concept of "${heading}". ${data.referenceImage ? " IMPORTANT: You MUST strictly replicate the character/object and art style from the provided REFERENCE IMAGE. Do not change the character design." : ""} Artistic and detailed, textless background.`
                 }),
               });
               const imgData = await imgRes.json();
