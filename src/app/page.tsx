@@ -1733,11 +1733,39 @@ export default function Home() {
           console.error("Header image failed", e);
         }
 
-        // --- 2. Inline Images (Deferred) ---
-        // User requested to skip automatic inline generation for speed.
-        // Images will be generated manually via "Generate All Inline Images" button.
+        // --- 2. Inline Images (First One Only) ---
+        // Generate the first chapter image for immediate feedback, defer the rest.
+        const headings = Array.from(fullText.matchAll(/##\s+(.+)/g)).map(m => m[1]);
         const headerImages: { heading: string, url: string }[] = [];
-        await addLog("挿絵の生成をスキップしました (手動で生成できます)", 1000);
+
+        if (headings.length > 0) {
+          await addLog(`最初の挿絵を作成中... (残りは後で生成できます)`, 1000);
+          const firstHeading = headings[0];
+          try {
+            const imgRes = await fetch("/api/generate-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: firstHeading,
+                articleText: "Concept: " + firstHeading,
+                visualStyle: data.visualStyle,
+                character: data.character,
+                referenceImage: data.referenceImage,
+                strictCharacter: data.strictCharacter,
+                promptOverride: `High quality ${data.visualStyle} illustration of ${data.character === '指定なし' ? 'a relevant object' : data.character} representing the concept of "${firstHeading}". ${data.referenceImage ? " IMPORTANT: You MUST strictly replicate the character/object and art style from the provided REFERENCE IMAGE. Do not change the character design." : ""} Artistic and detailed, textless background.`
+              }),
+            });
+            const imgData = await imgRes.json();
+            if (imgRes.ok && imgData.imageUrl) {
+              headerImages.push({ heading: firstHeading, url: imgData.imageUrl });
+              setInlineImages([...headerImages]);
+            }
+          } catch (e) {
+            console.error("First inline image failed", e);
+          }
+        } else {
+          await addLog("挿絵の生成をスキップしました (手動で生成できます)", 1000);
+        }
 
         const finalMeta = paragraphs.find(p => p.length > 50)?.substring(0, 120) + "..." || "";
 
